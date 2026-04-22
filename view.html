@@ -9,12 +9,8 @@
 <link rel="apple-touch-icon" href="favicon.png">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-  const SUPABASE_URL = 'https://sykysmaflsukkbmtvpox.supabase.co';
-  const SUPABASE_KEY = 'sb_publishable_notgq_3ZReyvCPr_z39vOg_oSTsH0aU';
-  const OWNER_USER_ID = 'fe00d173-4570-4ba4-9153-911a34c9e285';
-  const VIEWER_PASSWORD = 'ViewFile';
-  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-    auth: { persistSession: false }
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'tj_viewer_session' }
   });
 </script>
 <title>Trading Journal — View Only</title>
@@ -343,7 +339,8 @@ async function loadData(){
     document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModalDirect();closeDetailDirect();closeLightbox();}});
   }catch(err){
     console.error(err);
-    alert('Failed to load data');
+    alert('Failed to load data: ' + (err.message || JSON.stringify(err)));
+    document.getElementById('app-loading').textContent = 'Error: ' + (err.message || 'Unknown');
   }
 }
 
