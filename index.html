@@ -601,22 +601,7 @@ function restoreSidebarWidth(){
       sidebar.classList.remove('hidden');
     }
   }
-  updateToggleBtn();
-}
-  document.addEventListener('mousemove',e=>{
-    if(!dragging)return;
-    const newW=Math.max(0,Math.min(320,startW+(e.clientX-startX)));
-    if(newW<20){
-      sidebarHidden=true;
-      sidebar.style.width='0px';
-      sidebar.classList.add('hidden');
-    } else {
-      sidebarHidden=false;
-      sidebar.style.width=newW+'px';
-      sidebar.classList.remove('hidden');
-    }
-    updateToggleBtn();
-  });
+  
   document.addEventListener('mouseup',()=>{
     if(dragging){dragging=false;document.body.style.cursor='';document.body.style.userSelect='';}
   });
