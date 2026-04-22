@@ -3,9 +3,33 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  const SUPABASE_URL = 'https://sykysmaflsukkbmtvpox.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_notgq_3ZReyvCPr_z39vOg_oSTsH0aU';
+  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { persistSession: true, autoRefreshToken: true, storageKey: 'tj_auth' }
+  });
+  let currentUser = null;
+</script>
 <title>Trading Journal</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
+#login-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:#0d0d12;z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;font-family:'Segoe UI',system-ui,sans-serif}
+#login-box{background:#13131a;border:1px solid #1e1e2e;border-radius:16px;padding:32px 28px;width:100%;max-width:380px}
+#login-box h2{color:#a78bfa;font-size:1.4rem;margin-bottom:4px;text-align:center}
+#login-box .login-sub{color:#64748b;font-size:0.8rem;text-align:center;margin-bottom:24px}
+#login-box input{width:100%;background:#0d0d12;border:1.5px solid #2d2d3d;border-radius:10px;color:#e2e8f0;padding:14px 16px;font-size:0.95rem;margin-bottom:12px;outline:none;font-family:inherit}
+#login-box input:focus{border-color:#a78bfa}
+#login-box button{width:100%;background:#3b1f6e;border:1px solid #a78bfa;color:#a78bfa;border-radius:10px;padding:14px;font-size:0.95rem;font-weight:600;cursor:pointer;margin-top:8px}
+#login-box button:hover{background:#4a2785}
+#login-box button:disabled{opacity:0.5;cursor:not-allowed}
+#login-error{color:#f87171;font-size:0.8rem;text-align:center;margin-top:12px;min-height:16px}
+#app-loading{position:fixed;top:0;left:0;right:0;bottom:0;background:#0d0d12;z-index:9999;display:flex;align-items:center;justify-content:center;color:#a78bfa;font-family:'Segoe UI',system-ui,sans-serif}
+body.auth-ready #login-overlay,body.auth-ready #app-loading{display:none}
+body:not(.auth-ready) .app-container{display:none !important}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0d0d12;color:#e2e8f0;display:flex;height:100vh;overflow:hidden}
 a{color:#a78bfa;text-decoration:none}
 
@@ -221,6 +245,17 @@ a{color:#a78bfa;text-decoration:none}
 </style>
 </head>
 <body>
+<div id="app-loading">Loading...</div>
+<div id="login-overlay" style="display:none">
+  <div id="login-box">
+    <h2>📊 Trading Journal</h2>
+    <div class="login-sub">Sign in to access your trades</div>
+    <input type="email" id="login-email" placeholder="Email" autocomplete="email">
+    <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
+    <button id="login-btn" onclick="doLogin()">Sign In</button>
+    <div id="login-error"></div>
+  </div>
+</div>
 
 <div class="sidebar" id="sidebar">
   <div class="resize-handle" id="resize-handle"></div>
@@ -1014,6 +1049,39 @@ function updateStats(){
 }
 
 init();
+</script>
+<script>
+async function doLogin(){
+  const email=document.getElementById('login-email').value.trim();
+  const password=document.getElementById('login-password').value;
+  const btn=document.getElementById('login-btn');
+  const err=document.getElementById('login-error');
+  err.textContent='';
+  if(!email||!password){err.textContent='Enter email and password';return}
+  btn.disabled=true;btn.textContent='Signing in...';
+  const {data,error}=await supabaseClient.auth.signInWithPassword({email,password});
+  btn.disabled=false;btn.textContent='Sign In';
+  if(error){err.textContent=error.message;return}
+  currentUser=data.user;
+  showApp();
+}
+function showApp(){
+  document.body.classList.add('auth-ready');
+}
+function showLogin(){
+  document.getElementById('app-loading').style.display='none';
+  document.getElementById('login-overlay').style.display='flex';
+}
+async function checkAuth(){
+  const {data}=await supabaseClient.auth.getSession();
+  if(data.session){
+    currentUser=data.session.user;
+    showApp();
+  } else {
+    showLogin();
+  }
+}
+checkAuth();
 </script>
 </body>
 </html>
