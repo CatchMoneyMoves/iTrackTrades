@@ -9,9 +9,16 @@
 <link rel="apple-touch-icon" href="favicon.png">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+// ====== FILL IN THESE THREE VALUES ======
+const SUPABASE_URL = 'PASTE_YOUR_SUPABASE_URL_HERE';
+const SUPABASE_KEY = 'PASTE_YOUR_SUPABASE_ANON_KEY_HERE';
+const VIEWER_PASSWORD = 'PASTE_YOUR_VIEWER_PASSWORD_HERE';
+const OWNER_USER_ID = 'fe00d173-4570-4ba4-9153-911a34c9e285';
+// =========================================
+
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'tj_viewer_session' }
-  });
+  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'tj_viewer_session' }
+});
 </script>
 <title>Trading Journal — View Only</title>
 <style>
