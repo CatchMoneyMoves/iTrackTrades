@@ -13,6 +13,7 @@
     auth: { persistSession: true, autoRefreshToken: true, storageKey: 'tj_auth' }
   });
   let currentUser = null;
+  let syncReady = false;
 </script>
 <title>Trading Journal</title>
 <style>
@@ -29,7 +30,12 @@
 #login-error{color:#f87171;font-size:0.8rem;text-align:center;margin-top:12px;min-height:16px}
 #app-loading{position:fixed;top:0;left:0;right:0;bottom:0;background:#0d0d12;z-index:9999;display:flex;align-items:center;justify-content:center;color:#a78bfa;font-family:'Segoe UI',system-ui,sans-serif}
 body.auth-ready #login-overlay,body.auth-ready #app-loading{display:none}
-body:not(.auth-ready) .app-container{display:none !important}
+body:not(.auth-ready) .sidebar,body:not(.auth-ready) .main{display:none !important}
+#sync-indicator{position:fixed;bottom:12px;right:12px;background:#13131a;border:1px solid #1e1e2e;border-radius:20px;padding:6px 12px;font-size:0.65rem;color:#64748b;z-index:300;display:none;font-family:'Segoe UI',system-ui,sans-serif}
+#sync-indicator.show{display:block}
+#sync-indicator.syncing{color:#a78bfa;border-color:#a78bfa}
+#sync-indicator.synced{color:#4ade80;border-color:#4ade80}
+#sync-indicator.error{color:#f87171;border-color:#f87171}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0d0d12;color:#e2e8f0;display:flex;height:100vh;overflow:hidden}
 a{color:#a78bfa;text-decoration:none}
 
@@ -51,6 +57,8 @@ a{color:#a78bfa;text-decoration:none}
 .import-label input{position:absolute;inset:0;opacity:0;cursor:pointer}
 .clear-btn{background:#1e1e2e;border:1px solid #2d2d3d;color:#f87171;border-radius:7px;padding:8px;cursor:pointer;font-size:0.75rem;margin:2px 5px;text-align:left;display:flex;align-items:center;gap:7px;white-space:nowrap;overflow:hidden;width:calc(100% - 10px)}
 .clear-btn:hover{background:#2d0f0f;border-color:#f87171}
+.logout-btn{background:#1e1e2e;border:1px solid #2d2d3d;color:#64748b;border-radius:7px;padding:8px;cursor:pointer;font-size:0.75rem;margin:2px 5px;text-align:left;display:flex;align-items:center;gap:7px;white-space:nowrap;overflow:hidden;width:calc(100% - 10px)}
+.logout-btn:hover{background:#2d2d3d;color:#e2e8f0}
 .ql-item{display:flex;align-items:center;padding:5px 10px;margin:1px 5px;border-radius:7px;gap:4px;overflow:hidden;min-width:0;flex-shrink:0}
 .ql-item:hover{background:#1a1a28}
 .ql-item a{flex:1;color:#94a3b8;text-decoration:none;font-size:0.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
@@ -256,6 +264,7 @@ a{color:#a78bfa;text-decoration:none}
     <div id="login-error"></div>
   </div>
 </div>
+<div id="sync-indicator"></div>
 
 <div class="sidebar" id="sidebar">
   <div class="resize-handle" id="resize-handle"></div>
@@ -273,6 +282,9 @@ a{color:#a78bfa;text-decoration:none}
     <button class="export-btn" onclick="exportData()"><span style="font-size:12px;flex-shrink:0">⬇️</span> Export Data</button>
     <label class="import-label"><input type="file" accept=".json" onchange="importData(event)"><span style="font-size:12px;flex-shrink:0">⬆️</span> Import Data</label>
     <button class="clear-btn" onclick="clearData()"><span style="font-size:12px;flex-shrink:0">🗑️</span> Clear All Data</button>
+    <hr class="sidebar-divider">
+    <div class="sidebar-section">Account</div>
+    <button class="logout-btn" onclick="doLogout()"><span style="font-size:12px;flex-shrink:0">🔓</span> Sign Out</button>
     <hr class="sidebar-divider">
     <div class="sidebar-section">Quick Links</div>
     <div id="quick-links-list"></div>
@@ -382,11 +394,9 @@ a{color:#a78bfa;text-decoration:none}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script>
-let data=JSON.parse(localStorage.getItem('tj2_data')||'{}');
-let quickLinks=JSON.parse(localStorage.getItem('tj2_links')||'[]');
-let customPairs=JSON.parse(localStorage.getItem('tj2_pairs')||'[]');
-if(!customPairs.length){customPairs=['XAUUSD','EURUSD','GBPUSD','USDJPY','USDCAD','AUDUSD','NZDUSD','US30','NAS100','SPX500'];}
-if(!quickLinks.length){quickLinks=[{name:'TradingView',url:'https://tradingview.com'},{name:'Hyperliquid',url:'https://app.hyperliquid.xyz/portfolio'},{name:'Discord',url:'https://discord.com'}];}
+let data={};
+let quickLinks=[];
+let customPairs=[];
 
 let currentYear,currentMonth,activeDate,pendingShots=[],activeTags=new Set();
 let editingIdx=null,editingDk=null,pnlChart=null,qdChart=null;
@@ -406,12 +416,112 @@ const TAGS=[
   'Fakeout','Wickfill','Exhaustion Candles','Invalid'
 ];
 
+function showSyncStatus(state, text){
+  const el=document.getElementById('sync-indicator');
+  if(!el)return;
+  el.className='show '+state;
+  el.textContent=text;
+  if(state==='synced'){setTimeout(()=>{el.classList.remove('show');},1500);}
+}
+
+async function cloudPullAll(){
+  if(!currentUser)return;
+  showSyncStatus('syncing','⟳ Syncing...');
+  try{
+    const {data:trades,error:e1}=await supabaseClient.from('trades').select('*').eq('user_id',currentUser.id);
+    if(e1)throw e1;
+    const {data:settings,error:e2}=await supabaseClient.from('user_settings').select('*').eq('user_id',currentUser.id).maybeSingle();
+    if(e2)throw e2;
+    data={};
+    (trades||[]).forEach(t=>{
+      if(!data[t.date])data[t.date]={trades:[]};
+      data[t.date].trades.push({
+        id:t.id,pair:t.pair,timeframe:t.timeframe,pnl:t.pnl,
+        result:t.result,bias:t.bias,setup:t.setup,plan:t.plan,
+        notes:t.notes,tags:t.tags||[],screenshots:t.screenshots||[],
+        youtube:t.youtube||''
+      });
+    });
+    if(settings){
+      quickLinks=settings.quick_links||[];
+      customPairs=settings.custom_pairs||[];
+    }
+    if(!customPairs.length)customPairs=['XAUUSD','EURUSD','GBPUSD','USDJPY','USDCAD','AUDUSD','NZDUSD','US30','NAS100','SPX500'];
+    if(!quickLinks.length)quickLinks=[{name:'TradingView',url:'https://tradingview.com'},{name:'Hyperliquid',url:'https://app.hyperliquid.xyz/portfolio'},{name:'Discord',url:'https://discord.com'}];
+    localStorage.setItem('tj2_data',JSON.stringify(data));
+    localStorage.setItem('tj2_links',JSON.stringify(quickLinks));
+    localStorage.setItem('tj2_pairs',JSON.stringify(customPairs));
+    syncReady=true;
+    showSyncStatus('synced','✓ Synced');
+  }catch(err){
+    console.error('Pull failed:',err);
+    data=JSON.parse(localStorage.getItem('tj2_data')||'{}');
+    quickLinks=JSON.parse(localStorage.getItem('tj2_links')||'[]');
+    customPairs=JSON.parse(localStorage.getItem('tj2_pairs')||'[]');
+    if(!customPairs.length)customPairs=['XAUUSD','EURUSD','GBPUSD','USDJPY','USDCAD','AUDUSD','NZDUSD','US30','NAS100','SPX500'];
+    if(!quickLinks.length)quickLinks=[{name:'TradingView',url:'https://tradingview.com'},{name:'Hyperliquid',url:'https://app.hyperliquid.xyz/portfolio'},{name:'Discord',url:'https://discord.com'}];
+    syncReady=true;
+    showSyncStatus('error','⚠ Offline mode');
+  }
+}
+
+async function cloudUpsertTrade(dk,trade){
+  if(!currentUser||!syncReady)return;
+  showSyncStatus('syncing','⟳ Saving...');
+  try{
+    const row={
+      id:trade.id,user_id:currentUser.id,date:dk,
+      pair:trade.pair||null,timeframe:trade.timeframe||null,
+      pnl:trade.pnl||0,result:trade.result||null,bias:trade.bias||null,
+      setup:trade.setup||null,plan:trade.plan||null,notes:trade.notes||null,
+      tags:trade.tags||[],screenshots:trade.screenshots||[],
+      youtube:trade.youtube||null,updated_at:new Date().toISOString()
+    };
+    const {error}=await supabaseClient.from('trades').upsert(row);
+    if(error)throw error;
+    showSyncStatus('synced','✓ Saved');
+  }catch(err){
+    console.error('Save failed:',err);
+    showSyncStatus('error','⚠ Save failed');
+  }
+}
+
+async function cloudDeleteTrade(tradeId){
+  if(!currentUser||!syncReady)return;
+  showSyncStatus('syncing','⟳ Deleting...');
+  try{
+    const {error}=await supabaseClient.from('trades').delete().eq('id',tradeId).eq('user_id',currentUser.id);
+    if(error)throw error;
+    showSyncStatus('synced','✓ Deleted');
+  }catch(err){
+    console.error('Delete failed:',err);
+    showSyncStatus('error','⚠ Delete failed');
+  }
+}
+
+async function cloudSaveSettings(){
+  if(!currentUser||!syncReady)return;
+  try{
+    const row={user_id:currentUser.id,quick_links:quickLinks,custom_pairs:customPairs,updated_at:new Date().toISOString()};
+    const {error}=await supabaseClient.from('user_settings').upsert(row);
+    if(error)throw error;
+  }catch(err){console.error('Settings save failed:',err);}
+}
+
+async function cloudDeleteAllTrades(){
+  if(!currentUser||!syncReady)return;
+  try{
+    const {error}=await supabaseClient.from('trades').delete().eq('user_id',currentUser.id);
+    if(error)throw error;
+  }catch(err){console.error('Clear failed:',err);}
+}
+
 function autoResult(pnl){return pnl>0?'Win':pnl<0?'Loss':'Breakeven';}
 function pnlStr(val){const v=parseFloat(val)||0;return v>=0?`+$${v.toFixed(2)}`:`-$${Math.abs(v).toFixed(2)}`;}
 function pnlClass(val){return parseFloat(val)>=0?'green':'red';}
 function saveData(){localStorage.setItem('tj2_data',JSON.stringify(data));}
-function saveLinks(){localStorage.setItem('tj2_links',JSON.stringify(quickLinks));}
-function savePairs(){localStorage.setItem('tj2_pairs',JSON.stringify(customPairs));}
+function saveLinks(){localStorage.setItem('tj2_links',JSON.stringify(quickLinks));cloudSaveSettings();}
+function savePairs(){localStorage.setItem('tj2_pairs',JSON.stringify(customPairs));cloudSaveSettings();}
 
 function getYTId(url){
   if(!url||!url.trim())return null;
@@ -479,7 +589,8 @@ function toggleSidebar(){
   updateToggleBtn();
 }
 
-function init(){
+async function init(){
+  await cloudPullAll();
   const now=new Date();
   currentYear=now.getFullYear();currentMonth=now.getMonth();
   qYear=now.getFullYear();
@@ -513,34 +624,50 @@ function exportData(){
   a.click();URL.revokeObjectURL(url);
 }
 
-function importData(e){
+async function importData(e){
   const file=e.target.files[0];if(!file)return;
   const reader=new FileReader();
-  reader.onload=ev=>{
+  reader.onload=async ev=>{
     try{
       const parsed=JSON.parse(ev.target.result);
       if(parsed.data){
-        if(!confirm('This will replace your current data. Continue?'))return;
+        if(!confirm('This will replace your current data and sync to cloud. Continue?'))return;
         data=parsed.data;
         if(parsed.quickLinks)quickLinks=parsed.quickLinks;
         if(parsed.customPairs)customPairs=parsed.customPairs;
-        saveData();saveLinks();savePairs();
+        saveData();
+        localStorage.setItem('tj2_links',JSON.stringify(quickLinks));
+        localStorage.setItem('tj2_pairs',JSON.stringify(customPairs));
+        showSyncStatus('syncing','⟳ Uploading...');
+        await cloudDeleteAllTrades();
+        for(const dk of Object.keys(data)){
+          for(const t of (data[dk].trades||[])){
+            if(!t.id)t.id=Date.now()+Math.floor(Math.random()*1000);
+            await cloudUpsertTrade(dk,t);
+          }
+        }
+        await cloudSaveSettings();
+        saveData();
         renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();
-        alert('Imported successfully!');
+        showSyncStatus('synced','✓ Imported');
+        alert('Imported and synced to cloud!');
       } else alert('Invalid backup file.');
-    }catch(err){alert('Could not read file.');}
+    }catch(err){console.error(err);alert('Could not read file.');}
   };
   reader.readAsText(file);e.target.value='';
 }
 
-function clearData(){
-  if(!confirm('Delete ALL trade data?\n\nMake sure you exported a backup first.'))return;
-  if(!confirm('Last warning — this permanently deletes everything. Continue?'))return;
+async function clearData(){
+  if(!confirm('Delete ALL trade data from cloud?\n\nMake sure you exported a backup first.'))return;
+  if(!confirm('Last warning — this permanently deletes everything from cloud too. Continue?'))return;
+  showSyncStatus('syncing','⟳ Clearing...');
+  await cloudDeleteAllTrades();
   data={};localStorage.removeItem('tj2_data');
   renderCalendar();renderQuarterlyOverview();updateStats();
   if(pnlChart){pnlChart.destroy();pnlChart=null;}
   if(qdChart){qdChart.destroy();qdChart=null;}
-  alert('All data cleared.');
+  showSyncStatus('synced','✓ Cleared');
+  alert('All data cleared from cloud.');
 }
 
 function renderQuickLinks(){
@@ -998,14 +1125,15 @@ function renderSS(){
   el.innerHTML=pendingShots.map((s,i)=>`<div class="ss-thumb"><img src="${s}"><button class="ss-del" onclick="removeShot(${i})">x</button></div>`).join('');
 }
 
-function saveTrade(){
+async function saveTrade(){
   const pairInp=document.getElementById('tf-pair');
   const pair=pairInp?pairInp.value.trim().toUpperCase():'';
   if(!pair){alert('Enter a pair.');return;}
   const pnl=parseFloat(document.getElementById('tf-pnl').value)||0;
   const ytInp=document.getElementById('yt-input');
+  const existingId=(editingIdx!==null&&data[activeDate]&&data[activeDate].trades[editingIdx])?data[activeDate].trades[editingIdx].id:null;
   const t={
-    id:(editingIdx!==null&&data[activeDate]?data[activeDate].trades[editingIdx].id:null)||Date.now(),
+    id:existingId||Date.now(),
     pair,
     timeframe:document.getElementById('tf-tf').value,
     pnl,result:autoResult(pnl),
@@ -1020,16 +1148,22 @@ function saveTrade(){
   if(!data[activeDate])data[activeDate]={trades:[]};
   if(editingIdx!==null){data[activeDate].trades[editingIdx]=t;}
   else{data[activeDate].trades.push(t);}
-  saveData();cancelForm();
+  saveData();
+  await cloudUpsertTrade(activeDate,t);
+  cancelForm();
   renderDaySummary();renderLoggedTrades();renderCalendar();
   renderQuarterlyOverview();updateStats();
 }
 
-function deleteTrade(idx){
+async function deleteTrade(idx){
   if(!confirm('Delete this trade?'))return;
+  const trade=data[activeDate].trades[idx];
+  const tradeId=trade.id;
   data[activeDate].trades.splice(idx,1);
   if(!data[activeDate].trades.length)delete data[activeDate];
-  saveData();renderDaySummary();renderLoggedTrades();renderCalendar();
+  saveData();
+  await cloudDeleteTrade(tradeId);
+  renderDaySummary();renderLoggedTrades();renderCalendar();
   renderQuarterlyOverview();updateStats();
 }
 
@@ -1048,7 +1182,11 @@ function updateStats(){
   document.getElementById('hs-pnl').style.color=pnl>0?'#4ade80':pnl<0?'#f87171':'#64748b';
 }
 
-init();
+async function doLogout(){
+  if(!confirm('Sign out?'))return;
+  await supabaseClient.auth.signOut();
+  location.reload();
+}
 </script>
 <script>
 async function doLogin(){
@@ -1059,10 +1197,11 @@ async function doLogin(){
   err.textContent='';
   if(!email||!password){err.textContent='Enter email and password';return}
   btn.disabled=true;btn.textContent='Signing in...';
-  const {data,error}=await supabaseClient.auth.signInWithPassword({email,password});
+  const {data:authData,error}=await supabaseClient.auth.signInWithPassword({email,password});
   btn.disabled=false;btn.textContent='Sign In';
   if(error){err.textContent=error.message;return}
-  currentUser=data.user;
+  currentUser=authData.user;
+  await init();
   showApp();
 }
 function showApp(){
@@ -1073,9 +1212,10 @@ function showLogin(){
   document.getElementById('login-overlay').style.display='flex';
 }
 async function checkAuth(){
-  const {data}=await supabaseClient.auth.getSession();
-  if(data.session){
-    currentUser=data.session.user;
+  const {data:sessionData}=await supabaseClient.auth.getSession();
+  if(sessionData.session){
+    currentUser=sessionData.session.user;
+    await init();
     showApp();
   } else {
     showLogin();
