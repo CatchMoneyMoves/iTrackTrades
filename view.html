@@ -340,6 +340,7 @@ async function loadData(){
     currentYear=now.getFullYear();currentMonth=now.getMonth();
     qYear=now.getFullYear();
     renderCalendar();renderQuarterlyOverview();updateStats();
+    document.getElementById('app-loading').style.display='none';
     document.body.classList.add('unlocked');
     document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModalDirect();closeDetailDirect();closeLightbox();}});
   }catch(err){
