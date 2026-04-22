@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="apple-touch-icon" href="favicon.png">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  const SUPABASE_URL = 'https://sykysmaflsukkbmtvpox.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_notgq_3ZReyvCPr_z39vOg_oSTsH0aU';
+  const OWNER_USER_ID = 'fe00d173-4570-4ba4-9153-911a34c9e285';
+  const VIEWER_PASSWORD = 'ViewFile';
+  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { persistSession: false }
+  });
+</script>
+<title>Trading Journal — View Only</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0d0d12;color:#e2e8f0;display:flex;height:100vh;overflow:hidden}
+a{color:#a78bfa;text-decoration:none}
+
+#password-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:#0d0d12;z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px}
+#password-box{background:#13131a;border:1px solid #1e1e2e;border-radius:16px;padding:32px 28px;width:100%;max-width:380px;text-align:center}
+#password-box h2{color:#a78bfa;font-size:1.4rem;margin-bottom:4px}
+#password-box .pw-sub{color:#64748b;font-size:0.8rem;margin-bottom:24px}
+#password-box input{width:100%;background:#0d0d12;border:1.5px solid #2d2d3d;border-radius:10px;color:#e2e8f0;padding:14px 16px;font-size:0.95rem;margin-bottom:12px;outline:none;font-family:inherit;text-align:center}
+#password-box input:focus{border-color:#a78bfa}
+#password-box button{width:100%;background:#3b1f6e;border:1px solid #a78bfa;color:#a78bfa;border-radius:10px;padding:14px;font-size:0.95rem;font-weight:600;cursor:pointer}
+#password-box button:hover{background:#4a2785}
+#password-error{color:#f87171;font-size:0.8rem;margin-top:12px;min-height:16px}
+#app-loading{position:fixed;top:0;left:0;right:0;bottom:0;background:#0d0d12;z-index:9999;display:flex;align-items:center;justify-content:center;color:#a78bfa}
+body.unlocked #password-overlay,body.unlocked #app-loading{display:none}
+body:not(.unlocked) .sidebar,body:not(.unlocked) .main{display:none !important}
+
+.view-banner{position:fixed;top:0;left:0;right:0;background:#3b1f6e;color:#c4b5fd;text-align:center;padding:5px;font-size:0.7rem;z-index:50;font-weight:600;letter-spacing:0.5px}
+body.unlocked{padding-top:28px}
+
+.sidebar{width:200px;background:#111118;border-right:1px solid #1e1e2e;display:flex;flex-direction:column;flex-shrink:0;overflow:hidden}
+.sidebar-inner{display:flex;flex-direction:column;width:200px;overflow-y:auto;flex:1}
+.sidebar-logo{padding:16px 14px 10px;font-size:1rem;font-weight:700;color:#a78bfa;border-bottom:1px solid #1e1e2e}
+.sidebar-section{padding:10px 12px 4px;font-size:0.6rem;color:#475569;text-transform:uppercase;letter-spacing:1.2px}
+.sidebar-item{display:flex;align-items:center;gap:9px;padding:7px 12px;font-size:0.8rem;color:#94a3b8;cursor:pointer;border-radius:7px;margin:1px 5px}
+.sidebar-item:hover,.sidebar-item.active{background:#1e1e2e;color:#e2e8f0}
+.sidebar-item.active{color:#a78bfa}
+
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative}
+.topbar{background:#111118;border-bottom:1px solid #1e1e2e;padding:10px 20px;display:flex;align-items:center;justify-content:space-between}
+.topbar-title{font-size:0.95rem;font-weight:600}
+.header-stats{display:flex;gap:20px}
+.hstat{text-align:center}
+.hstat-val{font-size:0.95rem;font-weight:700}
+.hstat-lbl{font-size:0.58rem;color:#475569;text-transform:uppercase;letter-spacing:1px}
+
+.page{flex:1;overflow:hidden;display:none;flex-direction:column}
+.page.active{display:flex}
+
+.cal-header{padding:12px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #1e1e2e}
+.cal-nav-center{display:flex;align-items:center;gap:10px}
+.cal-month{font-size:1rem;font-weight:600;min-width:150px;text-align:center}
+.nav-btn{background:#1e1e2e;border:1px solid #2d2d3d;color:#e2e8f0;border-radius:7px;padding:4px 10px;cursor:pointer;font-size:0.85rem}
+.nav-btn:hover{background:#2d2d3d}
+.today-btn{background:transparent;border:1px solid #a78bfa;color:#a78bfa;border-radius:7px;padding:4px 10px;cursor:pointer;font-size:0.72rem}
+.cal-body{flex:1;display:flex;flex-direction:column;padding:10px 14px 14px}
+.cal-dow{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-bottom:5px}
+.cal-dow span{text-align:center;font-size:0.6rem;text-transform:uppercase;letter-spacing:1px;color:#475569;padding:3px 0}
+.cal-grid{flex:1;display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:1fr;gap:5px}
+.cal-day{background:#13131a;border:1px solid #1e1e2e;border-radius:8px;padding:8px;cursor:pointer;display:flex;flex-direction:column}
+.cal-day:hover{border-color:#a78bfa}
+.cal-day.empty{background:transparent;border-color:transparent;cursor:default}
+.cal-day.today{border-color:#a78bfa}
+.cal-day.has-win{border-left:3px solid #4ade80;border-radius:0 8px 8px 0}
+.cal-day.has-loss{border-left:3px solid #f87171;border-radius:0 8px 8px 0}
+.cal-day.has-mixed{border-left:3px solid #fbbf24;border-radius:0 8px 8px 0}
+.cal-day.has-be{border-left:3px solid #a78bfa;border-radius:0 8px 8px 0}
+.day-num{font-size:0.72rem;font-weight:600;color:#64748b}
+.day-pnl{font-size:0.82rem;font-weight:700;margin-top:auto}
+.day-count{font-size:0.6rem;color:#64748b;margin-top:2px}
+
+.q-year-nav{display:flex;align-items:center;justify-content:center;gap:14px;padding:12px 20px 0}
+.q-year-btn{background:#1e1e2e;border:1px solid #2d2d3d;color:#e2e8f0;border-radius:7px;padding:4px 12px;cursor:pointer}
+.q-year-label{font-size:1rem;font-weight:700;color:#a78bfa;min-width:60px;text-align:center}
+.q-top{padding:12px 20px;max-height:44%;overflow-y:auto}
+.q-bottom{flex:1;padding:0 20px 16px;display:flex;flex-direction:column;min-height:0}
+.q-overview-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.q-overview-card{background:#13131a;border:1px solid #1e1e2e;border-radius:12px;padding:14px;cursor:pointer;position:relative}
+.q-overview-card:hover{border-color:#a78bfa}
+.q-overview-card::after{content:'›';position:absolute;right:12px;top:50%;transform:translateY(-50%);color:#475569;font-size:1.2rem}
+.qoc-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.qoc-title{font-size:0.95rem;font-weight:700;color:#a78bfa}
+.qoc-pnl{font-size:0.95rem;font-weight:700}
+.qoc-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.qoc-stat{background:#0d0d12;border-radius:7px;padding:6px;text-align:center}
+.qoc-val{font-size:0.82rem;font-weight:700}
+.qoc-lbl{font-size:0.56rem;color:#475569;text-transform:uppercase;margin-top:1px}
+.chart-section{background:#13131a;border:1px solid #1e1e2e;border-radius:12px;padding:16px;flex:1;display:flex;flex-direction:column;min-height:0}
+.chart-title{font-size:0.78rem;font-weight:600;color:#94a3b8;margin-bottom:10px}
+.chart-wrap{flex:1;position:relative}
+.chart-wrap canvas{width:100%!important;height:100%!important}
+
+.qd-header{background:#13131a;border-bottom:1px solid #1e1e2e;padding:12px 20px;display:flex;align-items:center;gap:14px}
+.qd-title{font-size:1rem;font-weight:700;color:#a78bfa}
+.qd-pnl{font-size:1rem;font-weight:700;margin-left:auto}
+.qd-stats-bar{display:flex;gap:8px;padding:10px 20px;border-bottom:1px solid #1e1e2e;flex-wrap:wrap}
+.qd-stat{background:#13131a;border-radius:8px;padding:7px 12px;text-align:center;flex:1;min-width:60px}
+.qd-stat-val{font-size:0.88rem;font-weight:700}
+.qd-stat-lbl{font-size:0.56rem;color:#475569;text-transform:uppercase;margin-top:1px}
+.qd-chart{padding:12px 20px;border-bottom:1px solid #1e1e2e}
+.qd-chart-wrap{position:relative;height:140px}
+.qd-trades{flex:1;overflow-y:auto;padding:10px 20px}
+.qd-trade-card{background:#13131a;border:1px solid #1e1e2e;border-radius:10px;padding:11px 14px;margin-bottom:7px;cursor:pointer;display:flex;align-items:center;gap:10px}
+.qd-trade-card:hover{border-color:#a78bfa}
+.qd-date{font-size:0.68rem;color:#475569;min-width:72px}
+.qd-pair{font-weight:700;color:#c4b5fd;font-size:0.88rem;min-width:48px}
+.qd-setup{font-size:0.7rem;color:#64748b;flex:1}
+.qd-pnl-cell{font-weight:700;font-size:0.88rem;margin-left:auto}
+
+.overlay-wrap{position:absolute;inset:0;background:rgba(0,0,0,0.75);z-index:200;display:none;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto}
+.overlay-wrap.open{display:flex}
+.modal{background:#13131a;border:1px solid #2d2d3d;border-radius:16px;width:100%;max-width:620px;padding:22px;margin:auto}
+.modal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+.modal-title{font-size:0.95rem;font-weight:700;color:#a78bfa}
+.close-btn{background:none;border:none;color:#64748b;font-size:1.4rem;cursor:pointer}
+.day-summary{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.sum-pill{background:#0d0d12;border:1px solid #1e1e2e;border-radius:9px;padding:7px 12px;flex:1;min-width:70px;text-align:center}
+.sum-val{font-size:0.95rem;font-weight:700}
+.sum-lbl{font-size:0.58rem;color:#475569;text-transform:uppercase;margin-top:2px}
+.trade-card{background:#0d0d12;border:1px solid #1e1e2e;border-radius:9px;padding:11px;margin-bottom:7px;cursor:pointer;position:relative}
+.trade-card:hover{border-color:#a78bfa}
+.trade-card-header{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:5px}
+.tc-pair{font-weight:700;color:#c4b5fd;font-size:0.88rem}
+.badge-win{font-size:0.65rem;padding:2px 7px;border-radius:10px;font-weight:600;background:#052e16;color:#4ade80}
+.badge-loss{font-size:0.65rem;padding:2px 7px;border-radius:10px;font-weight:600;background:#2d0f0f;color:#f87171}
+.badge-be{font-size:0.65rem;padding:2px 7px;border-radius:10px;font-weight:600;background:#1e1a2e;color:#a78bfa}
+.tc-pnl{font-weight:700;margin-left:auto}
+.tc-meta{font-size:0.7rem;color:#64748b;display:flex;gap:8px;flex-wrap:wrap;margin-bottom:3px}
+.tc-notes-preview{font-size:0.72rem;color:#64748b;margin-top:4px;border-left:2px solid #2d2d3d;padding-left:7px;font-style:italic}
+.tc-tags{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}
+.tc-tag{font-size:0.6rem;background:#1e1e2e;color:#94a3b8;border-radius:4px;padding:2px 5px}
+.tc-shots{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}
+.tc-shots img{height:48px;border-radius:5px;object-fit:cover;border:1px solid #2d2d3d;cursor:pointer}
+.detail-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-bottom:11px}
+.detail-item{background:#0d0d12;border-radius:7px;padding:7px 9px}
+.detail-lbl{font-size:0.6rem;color:#475569;text-transform:uppercase;margin-bottom:2px}
+.detail-val{font-size:0.82rem;font-weight:600}
+.ss-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:5px;margin-top:7px}
+.ss-thumb{position:relative;border-radius:5px;overflow:hidden;aspect-ratio:16/9}
+.ss-thumb img{width:100%;height:100%;object-fit:cover}
+.yt-thumb{display:block;position:relative;border-radius:8px;overflow:hidden;margin-top:6px}
+.yt-thumb img{width:100%;border-radius:8px;display:block}
+.yt-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.3)}
+.yt-play-btn{width:52px;height:52px;background:rgba(255,0,0,0.9);border-radius:50%;display:flex;align-items:center;justify-content:center}
+.yt-play-arrow{width:0;height:0;border-top:10px solid transparent;border-bottom:10px solid transparent;border-left:18px solid white;margin-left:4px}
+.lightbox{position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:500;display:none;align-items:center;justify-content:center}
+.lightbox.open{display:flex}
+.lightbox img{max-width:90vw;max-height:90vh;border-radius:8px}
+.lb-close{position:absolute;top:16px;right:20px;background:none;border:none;color:#fff;font-size:2rem;cursor:pointer}
+.green{color:#4ade80}.red{color:#f87171}.purple{color:#a78bfa}.muted{color:#64748b}.neutral{color:#94a3b8}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:#0d0d12}
+::-webkit-scrollbar-thumb{background:#2d2d3d;border-radius:3px}
+</style>
+</head>
+<body>
+<div id="app-loading">Loading...</div>
+<div id="password-overlay">
+  <div id="password-box">
+    <h2>🔒 Trading Journal</h2>
+    <div class="pw-sub">Enter password to view</div>
+    <input type="password" id="pw-input" placeholder="Password" autocomplete="off">
+    <button onclick="checkPassword()">Unlock</button>
+    <div id="password-error"></div>
+  </div>
+</div>
+
+<div class="view-banner">👁 VIEW ONLY MODE — No editing</div>
+
+<div class="sidebar">
+  <div class="sidebar-inner">
+    <div class="sidebar-logo">📈 Journal</div>
+    <div class="sidebar-section">Views</div>
+    <div class="sidebar-item active" id="nav-calendar" onclick="showPage('calendar',this)">
+      <span>📅</span> Calendar
+    </div>
+    <div class="sidebar-item" id="nav-quarterly" onclick="showPage('quarterly',this)">
+      <span>📊</span> Performance
+    </div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title" id="topbar-title">Calendar</div>
+    <div class="header-stats">
+      <div class="hstat"><div class="hstat-val purple" id="hs-trades">0</div><div class="hstat-lbl">Trades</div></div>
+      <div class="hstat"><div class="hstat-val neutral" id="hs-wr">—</div><div class="hstat-lbl">Win Rate</div></div>
+      <div class="hstat"><div class="hstat-val muted" id="hs-pnl">$0</div><div class="hstat-lbl">All-time P&L</div></div>
+    </div>
+  </div>
+
+  <div class="page active" id="page-calendar">
+    <div class="cal-header">
+      <div class="cal-nav-center">
+        <button class="nav-btn" onclick="changeMonth(-1)">&#8249;</button>
+        <div class="cal-month" id="cal-month-label"></div>
+        <button class="nav-btn" onclick="changeMonth(1)">&#8250;</button>
+      </div>
+      <button class="today-btn" onclick="goToday()">Today</button>
+    </div>
+    <div class="cal-body">
+      <div class="cal-dow">
+        <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+      </div>
+      <div class="cal-grid" id="cal-grid"></div>
+    </div>
+  </div>
+
+  <div class="page" id="page-quarterly">
+    <div class="q-year-nav">
+      <button class="q-year-btn" onclick="changeYear(-1)">&#8249;</button>
+      <div class="q-year-label" id="q-year-label">2026</div>
+      <button class="q-year-btn" onclick="changeYear(1)">&#8250;</button>
+    </div>
+    <div class="q-top">
+      <div class="q-overview-grid" id="q-overview-grid"></div>
+    </div>
+    <div class="q-bottom">
+      <div class="chart-section">
+        <div class="chart-title">Running P&L — All Trades</div>
+        <div class="chart-wrap"><canvas id="pnl-chart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page" id="page-qdetail">
+    <div class="qd-header">
+      <div style="color:#a78bfa;cursor:pointer;font-size:0.82rem" onclick="showPage('quarterly',document.getElementById('nav-quarterly'))">&#8592; Back</div>
+      <div class="qd-title" id="qd-title"></div>
+      <div class="qd-pnl" id="qd-pnl"></div>
+    </div>
+    <div class="qd-stats-bar" id="qd-stats-bar"></div>
+    <div class="qd-chart">
+      <div style="font-size:0.7rem;color:#64748b;margin-bottom:6px">Running P&L this quarter</div>
+      <div class="qd-chart-wrap"><canvas id="qd-chart"></canvas></div>
+    </div>
+    <div class="qd-trades" id="qd-trades"></div>
+  </div>
+
+  <div class="overlay-wrap" id="overlay" onclick="closeOverlay(event)">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="modal-date-title"></div>
+        <button class="close-btn" onclick="closeModalDirect()">&#215;</button>
+      </div>
+      <div class="day-summary" id="day-summary"></div>
+      <div id="logged-trades"></div>
+    </div>
+  </div>
+
+  <div class="overlay-wrap" id="detail-overlay" onclick="closeDetailOverlay(event)">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="detail-title">Trade Detail</div>
+        <button class="close-btn" onclick="closeDetailDirect()">&#215;</button>
+      </div>
+      <div id="detail-content"></div>
+    </div>
+  </div>
+</div>
+
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <button class="lb-close" onclick="closeLightbox()">&#215;</button>
+  <img id="lb-img" src="" alt="">
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+let data={},currentYear,currentMonth,activeDate,pnlChart=null,qdChart=null,currentQTrades=[];
+let qYear=new Date().getFullYear();
+
+function pnlStr(val){const v=parseFloat(val)||0;return v>=0?`+$${v.toFixed(2)}`:`-$${Math.abs(v).toFixed(2)}`;}
+function pnlClass(val){return parseFloat(val)>=0?'green':'red';}
+
+function getYTId(url){
+  if(!url||!url.trim())return null;
+  try{
+    let m=url.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/);if(m)return m[1];
+    m=url.match(/[?&]v=([a-zA-Z0-9_-]{11})/);if(m)return m[1];
+    m=url.match(/\/embed\/([a-zA-Z0-9_-]{11})/);if(m)return m[1];
+    m=url.match(/\/shorts\/([a-zA-Z0-9_-]{11})/);if(m)return m[1];
+    m=url.match(/\/live\/([a-zA-Z0-9_-]{11})/);if(m)return m[1];
+    m=url.match(/\/([a-zA-Z0-9_-]{11})(?:[?&]|$)/);if(m)return m[1];
+  }catch(e){}
+  return null;
+}
+function ytThumb(ytId,url){
+  return`<a href="${url||'https://www.youtube.com/watch?v='+ytId}" target="_blank" class="yt-thumb">
+    <img src="https://img.youtube.com/vi/${ytId}/hqdefault.jpg">
+    <div class="yt-play"><div class="yt-play-btn"><div class="yt-play-arrow"></div></div></div>
+  </a>`;
+}
+
+function checkPassword(){
+  const input=document.getElementById('pw-input').value;
+  const err=document.getElementById('password-error');
+  if(input===VIEWER_PASSWORD){
+    sessionStorage.setItem('tj_viewer_unlocked','1');
+    loadData();
+  } else {
+    err.textContent='Incorrect password';
+    document.getElementById('pw-input').value='';
+  }
+}
+
+document.getElementById('pw-input').addEventListener('keypress',e=>{
+  if(e.key==='Enter')checkPassword();
+});
+
+async function loadData(){
+  document.getElementById('password-overlay').style.display='none';
+  document.getElementById('app-loading').style.display='flex';
+  try{
+    const {data:trades,error:e1}=await supabaseClient.from('trades').select('*').eq('user_id',OWNER_USER_ID);
+    if(e1)throw e1;
+    data={};
+    (trades||[]).forEach(t=>{
+      if(!data[t.date])data[t.date]={trades:[]};
+      data[t.date].trades.push({
+        id:t.id,pair:t.pair,timeframe:t.timeframe,pnl:t.pnl,
+        result:t.result,bias:t.bias,setup:t.setup,plan:t.plan,
+        notes:t.notes,tags:t.tags||[],screenshots:t.screenshots||[],
+        youtube:t.youtube||''
+      });
+    });
+    const now=new Date();
+    currentYear=now.getFullYear();currentMonth=now.getMonth();
+    qYear=now.getFullYear();
+    renderCalendar();renderQuarterlyOverview();updateStats();
+    document.body.classList.add('unlocked');
+    document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModalDirect();closeDetailDirect();closeLightbox();}});
+  }catch(err){
+    console.error(err);
+    alert('Failed to load data');
+  }
+}
+
+if(sessionStorage.getItem('tj_viewer_unlocked')==='1')loadData();
+
+function showPage(id,el){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.sidebar-item').forEach(i=>i.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  if(el)el.classList.add('active');
+  const titles={calendar:'Calendar',quarterly:'Performance',qdetail:''};
+  if(titles[id]!==undefined)document.getElementById('topbar-title').textContent=titles[id];
+  if(id==='quarterly'){renderQuarterlyOverview();setTimeout(renderPnlChart,50);}
+}
+
+function changeYear(dir){
+  qYear+=dir;
+  document.getElementById('q-year-label').textContent=qYear;
+  renderQuarterlyOverview();
+  setTimeout(renderPnlChart,50);
+}
+function changeMonth(dir){
+  currentMonth+=dir;
+  if(currentMonth>11){currentMonth=0;currentYear++;}
+  if(currentMonth<0){currentMonth=11;currentYear--;}
+  renderCalendar();
+}
+function goToday(){const n=new Date();currentYear=n.getFullYear();currentMonth=n.getMonth();renderCalendar();}
+
+function renderCalendar(){
+  const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('cal-month-label').textContent=months[currentMonth]+' '+currentYear;
+  const grid=document.getElementById('cal-grid');grid.innerHTML='';
+  const firstDay=new Date(currentYear,currentMonth,1).getDay();
+  const daysInMonth=new Date(currentYear,currentMonth+1,0).getDate();
+  const today=new Date();
+  const totalCells=Math.ceil((firstDay+daysInMonth)/7)*7;
+  for(let i=0;i<totalCells;i++){
+    const d=i-firstDay+1;
+    const el=document.createElement('div');
+    if(d<1||d>daysInMonth){el.className='cal-day empty';grid.appendChild(el);continue;}
+    const dk=`${currentYear}-${String(currentMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const trades=(data[dk]||{}).trades||[];
+    el.className='cal-day';
+    if(today.getFullYear()===currentYear&&today.getMonth()===currentMonth&&today.getDate()===d)el.classList.add('today');
+    if(trades.length){
+      const pnl=trades.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+      const wins=trades.filter(t=>t.result==='Win').length;
+      const losses=trades.filter(t=>t.result==='Loss').length;
+      const bes=trades.filter(t=>t.result==='Breakeven').length;
+      if(wins>0&&losses===0&&bes===0)el.classList.add('has-win');
+      else if(losses>0&&wins===0&&bes===0)el.classList.add('has-loss');
+      else if(bes>0&&wins===0&&losses===0)el.classList.add('has-be');
+      else el.classList.add('has-mixed');
+      el.innerHTML=`<div class="day-num">${d}</div><div class="day-pnl ${pnlClass(pnl)}">${pnlStr(pnl)}</div><div class="day-count">${trades.length}t</div>`;
+    } else {
+      el.innerHTML=`<div class="day-num">${d}</div>`;
+    }
+    el.onclick=()=>openModal(dk);grid.appendChild(el);
+  }
+}
+
+function buildChartData(trades){
+  const sorted=[...trades].sort((a,b)=>a.date.localeCompare(b.date));
+  let running=0;const labels=[],values=[];
+  sorted.forEach(t=>{running+=parseFloat(t.pnl)||0;labels.push(t.date);values.push(parseFloat(running.toFixed(2)));});
+  return{labels,values};
+}
+function makeChart(canvas,labels,values){
+  const isPos=!values.length||values[values.length-1]>=0;
+  const lineColor=isPos?'#4ade80':'#f87171';
+  return new Chart(canvas,{
+    type:'line',
+    data:{labels,datasets:[{
+      data:values,borderColor:lineColor,borderWidth:2,
+      pointBackgroundColor:values.map(v=>v>=0?'#4ade80':'#f87171'),
+      pointRadius:3,pointHoverRadius:5,fill:true,
+      backgroundColor:(ctx)=>{
+        const{ctx:c,chartArea}=ctx.chart;if(!chartArea)return'transparent';
+        const g=c.createLinearGradient(0,chartArea.top,0,chartArea.bottom);
+        g.addColorStop(0,isPos?'rgba(74,222,128,0.25)':'rgba(248,113,113,0.25)');
+        g.addColorStop(1,'rgba(0,0,0,0)');return g;
+      },tension:0.3
+    }]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false},tooltip:{backgroundColor:'#1e1e2e',borderColor:'#a78bfa',borderWidth:1,titleColor:'#a78bfa',bodyColor:'#e2e8f0',padding:9,callbacks:{title:i=>i[0].label,label:i=>`  P&L: ${pnlStr(i.raw)}`}}},
+      scales:{
+        x:{ticks:{color:'#475569',font:{size:9},maxTicksLimit:7,maxRotation:0},grid:{color:'#1e1e2e'}},
+        y:{ticks:{color:'#475569',font:{size:9},callback:v=>`$${v.toFixed(0)}`},grid:{color:'#1e1e2e'}}
+      }
+    }
+  });
+}
+function renderPnlChart(){
+  const canvas=document.getElementById('pnl-chart');if(!canvas)return;
+  const all=[];
+  Object.entries(data).forEach(([dk,dd])=>(dd.trades||[]).forEach(t=>all.push({...t,date:dk})));
+  if(!all.length){if(pnlChart){pnlChart.destroy();pnlChart=null;}return;}
+  const{labels,values}=buildChartData(all);
+  if(pnlChart)pnlChart.destroy();
+  pnlChart=makeChart(canvas,labels,values);
+}
+
+function renderQuarterlyOverview(){
+  document.getElementById('q-year-label').textContent=qYear;
+  const quarters=[{label:'Q1',months:[0,1,2]},{label:'Q2',months:[3,4,5]},{label:'Q3',months:[6,7,8]},{label:'Q4',months:[9,10,11]}];
+  const grid=document.getElementById('q-overview-grid');grid.innerHTML='';
+  quarters.forEach(q=>{
+    const trades=[];
+    Object.entries(data).forEach(([dk,dd])=>{
+      const d=new Date(dk+'T12:00:00');
+      if(d.getFullYear()===qYear&&q.months.includes(d.getMonth()))(dd.trades||[]).forEach(t=>trades.push({...t,date:dk}));
+    });
+    const pnl=trades.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+    const wins=trades.filter(t=>t.result==='Win').length;
+    const wr=trades.length?Math.round(wins/trades.length*100):null;
+    const card=document.createElement('div');
+    card.className='q-overview-card';
+    card.innerHTML=`
+      <div class="qoc-header">
+        <div class="qoc-title">${q.label} ${qYear}</div>
+        <div class="qoc-pnl ${pnlClass(pnl)}">${pnlStr(pnl)}</div>
+      </div>
+      <div class="qoc-stats">
+        <div class="qoc-stat"><div class="qoc-val purple">${trades.length}</div><div class="qoc-lbl">Trades</div></div>
+        <div class="qoc-stat"><div class="qoc-val neutral">${wr!==null?wr+'%':'—'}</div><div class="qoc-lbl">Win Rate</div></div>
+        <div class="qoc-stat"><div class="qoc-val green">${wins}</div><div class="qoc-lbl">Wins</div></div>
+      </div>`;
+    card.onclick=()=>openQuarterDetail(q,qYear,trades);
+    grid.appendChild(card);
+  });
+}
+
+function openQuarterDetail(q,year,trades){
+  currentQTrades=trades;
+  const pnl=trades.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+  const wins=trades.filter(t=>t.result==='Win').length;
+  const losses=trades.filter(t=>t.result==='Loss').length;
+  const wr=trades.length?Math.round(wins/trades.length*100):null;
+  const avg=trades.length?pnl/trades.length:0;
+  document.getElementById('qd-title').textContent=`${q.label} ${year}`;
+  document.getElementById('qd-pnl').textContent=pnlStr(pnl);
+  document.getElementById('qd-pnl').className=`qd-pnl ${pnlClass(pnl)}`;
+  document.getElementById('topbar-title').textContent=`${q.label} ${year}`;
+  document.getElementById('qd-stats-bar').innerHTML=`
+    <div class="qd-stat"><div class="qd-stat-val purple">${trades.length}</div><div class="qd-stat-lbl">Trades</div></div>
+    <div class="qd-stat"><div class="qd-stat-val neutral">${wr!==null?wr+'%':'—'}</div><div class="qd-stat-lbl">Win Rate</div></div>
+    <div class="qd-stat"><div class="qd-stat-val ${pnlClass(avg)}">${pnlStr(avg)}</div><div class="qd-stat-lbl">Avg P&L</div></div>
+    <div class="qd-stat"><div class="qd-stat-val green">${wins}</div><div class="qd-stat-lbl">Wins</div></div>
+    <div class="qd-stat"><div class="qd-stat-val red">${losses}</div><div class="qd-stat-lbl">Losses</div></div>`;
+  const qCanvas=document.getElementById('qd-chart');
+  if(qdChart){qdChart.destroy();qdChart=null;}
+  if(trades.length){const{labels,values}=buildChartData(trades);qdChart=makeChart(qCanvas,labels,values);}
+  renderQdTrades();
+  document.getElementById('qd-trades').scrollTop=0;
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-qdetail').classList.add('active');
+  document.querySelectorAll('.sidebar-item').forEach(i=>i.classList.remove('active'));
+}
+function renderQdTrades(){
+  const sorted=[...currentQTrades].sort((a,b)=>b.date.localeCompare(a.date));
+  document.getElementById('qd-trades').innerHTML=sorted.length?sorted.map(t=>`
+    <div class="qd-trade-card" onclick="openTradeDetailFromQ('${t.date}','${t.id}')">
+      <div class="qd-date">${t.date}</div>
+      <div class="qd-pair">${t.pair||'—'}</div>
+      <div class="qd-setup">${t.setup||'—'}</div>
+      <div class="qd-pnl-cell ${pnlClass(t.pnl)}">${pnlStr(t.pnl)}</div>
+      <div style="color:#475569">›</div>
+    </div>`).join(''):`<div style="text-align:center;color:#475569;padding:40px;font-size:0.82rem">No trades</div>`;
+}
+function openTradeDetailFromQ(dk,tradeId){
+  const trades=(data[dk]||{}).trades||[];
+  const idx=trades.findIndex(t=>String(t.id)===String(tradeId));
+  if(idx>=0)openTradeDetail(dk,idx);
+}
+
+function openModal(dk){
+  activeDate=dk;
+  const d=new Date(dk+'T12:00:00');
+  document.getElementById('modal-date-title').textContent=d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+  renderDaySummary();renderLoggedTrades();
+  document.getElementById('overlay').classList.add('open');
+}
+function closeOverlay(e){if(e.target===document.getElementById('overlay'))closeModalDirect();}
+function closeModalDirect(){document.getElementById('overlay').classList.remove('open');}
+
+function renderDaySummary(){
+  const trades=(data[activeDate]||{}).trades||[];
+  const pnl=trades.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+  const wins=trades.filter(t=>t.result==='Win').length;
+  const losses=trades.filter(t=>t.result==='Loss').length;
+  const wr=trades.length?Math.round(wins/trades.length*100):null;
+  document.getElementById('day-summary').innerHTML=`
+    <div class="sum-pill"><div class="sum-val purple">${trades.length}</div><div class="sum-lbl">Trades</div></div>
+    <div class="sum-pill"><div class="sum-val ${pnlClass(pnl)}">${pnlStr(pnl)}</div><div class="sum-lbl">P&L</div></div>
+    <div class="sum-pill"><div class="sum-val neutral">${wr!==null?wr+'%':'—'}</div><div class="sum-lbl">Win Rate</div></div>
+    <div class="sum-pill"><div class="sum-val">${wins}W / ${losses}L</div><div class="sum-lbl">Results</div></div>`;
+}
+function renderLoggedTrades(){
+  const trades=(data[activeDate]||{}).trades||[];
+  const wrap=document.getElementById('logged-trades');
+  if(!trades.length){wrap.innerHTML='<div style="text-align:center;color:#475569;padding:20px;font-size:0.82rem">No trades this day</div>';return;}
+  wrap.innerHTML=trades.map((t,i)=>`
+    <div class="trade-card" onclick="openTradeDetail('${activeDate}',${i})">
+      <div class="trade-card-header">
+        <span class="tc-pair">${t.pair||'—'}</span>
+        ${t.result?`<span class="badge-${t.result==='Win'?'win':t.result==='Loss'?'loss':'be'}">${t.result}</span>`:''}
+        <span class="tc-pnl ${pnlClass(t.pnl)}">${pnlStr(t.pnl)}</span>
+      </div>
+      <div class="tc-meta">
+        ${t.timeframe?`<span>${t.timeframe}</span>`:''}
+        ${t.setup?`<span>${t.setup}</span>`:''}
+        ${t.bias?`<span>Bias: ${t.bias}</span>`:''}
+      </div>
+      ${t.notes?`<div class="tc-notes-preview">${t.notes.length>120?t.notes.slice(0,120)+'…':t.notes}</div>`:''}
+      ${t.tags&&t.tags.length?`<div class="tc-tags">${t.tags.map(g=>`<span class="tc-tag">${g}</span>`).join('')}</div>`:''}
+      ${t.screenshots&&t.screenshots.length?`<div class="tc-shots">${t.screenshots.map(s=>`<img src="${s}" onclick="event.stopPropagation();openLightbox('${s}')">`).join('')}</div>`:''}
+    </div>`).join('');
+}
+
+function openTradeDetail(dk,idx){
+  const t=((data[dk]||{}).trades||[])[idx];
+  if(!t)return;
+  const ytId=getYTId(t.youtube||'');
+  document.getElementById('detail-title').textContent=(t.pair||'Trade')+' — '+dk;
+  document.getElementById('detail-content').innerHTML=`
+    <div class="detail-grid">
+      <div class="detail-item"><div class="detail-lbl">Result</div><div class="detail-val ${t.result==='Win'?'green':t.result==='Loss'?'red':'purple'}">${t.result||'—'}</div></div>
+      <div class="detail-item"><div class="detail-lbl">P&L</div><div class="detail-val ${pnlClass(t.pnl)}">${pnlStr(t.pnl)}</div></div>
+      <div class="detail-item"><div class="detail-lbl">Timeframe</div><div class="detail-val">${t.timeframe||'—'}</div></div>
+      <div class="detail-item"><div class="detail-lbl">Bias</div><div class="detail-val">${t.bias||'—'}</div></div>
+      <div class="detail-item"><div class="detail-lbl">Setup</div><div class="detail-val">${t.setup||'—'}</div></div>
+      <div class="detail-item"><div class="detail-lbl">Followed Plan?</div><div class="detail-val">${t.plan||'—'}</div></div>
+    </div>
+    ${t.tags&&t.tags.length?`<div class="tc-tags" style="margin-bottom:11px">${t.tags.map(g=>`<span class="tc-tag">${g}</span>`).join('')}</div>`:''}
+    ${t.notes?`<div style="background:#0d0d12;border-radius:0 8px 8px 0;border-left:2px solid #a78bfa;padding:11px;font-size:0.8rem;color:#94a3b8;line-height:1.6;margin-bottom:9px"><div style="font-size:0.6rem;color:#475569;text-transform:uppercase;margin-bottom:5px">Notes</div>${t.notes}</div>`:''}
+    ${t.screenshots&&t.screenshots.length?`<div class="ss-grid" style="margin-bottom:9px">${t.screenshots.map(s=>`<div class="ss-thumb"><img src="${s}" onclick="openLightbox('${s}')" style="cursor:pointer"></div>`).join('')}</div>`:''}
+    ${ytId?`<div style="margin-top:8px"><div style="font-size:0.6rem;color:#475569;text-transform:uppercase;margin-bottom:6px">Video</div>${ytThumb(ytId,t.youtube)}</div>`:''}`;
+  document.getElementById('detail-overlay').classList.add('open');
+}
+function closeDetailOverlay(e){if(e.target===document.getElementById('detail-overlay'))closeDetailDirect();}
+function closeDetailDirect(){document.getElementById('detail-overlay').classList.remove('open');}
+
+function openLightbox(src){document.getElementById('lb-img').src=src;document.getElementById('lightbox').classList.add('open');}
+function closeLightbox(){document.getElementById('lightbox').classList.remove('open');}
+
+function updateStats(){
+  const all=Object.values(data).flatMap(d=>d.trades||[]);
+  const pnl=all.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+  const wins=all.filter(t=>t.result==='Win').length;
+  const wr=all.length?Math.round(wins/all.length*100):null;
+  document.getElementById('hs-trades').textContent=all.length;
+  document.getElementById('hs-wr').textContent=wr!==null?wr+'%':'—';
+  document.getElementById('hs-pnl').textContent=pnlStr(pnl);
+  document.getElementById('hs-pnl').style.color=pnl>0?'#4ade80':pnl<0?'#f87171':'#64748b';
+}
+</script>
+</body>
+</html>
