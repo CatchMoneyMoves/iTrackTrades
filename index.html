@@ -568,6 +568,54 @@ function initSidebar(){
     updateToggleBtn();
   });
   document.addEventListener('mouseup',()=>{
+    if(dragging){
+      dragging=false;
+      document.body.style.cursor='';
+      document.body.style.userSelect='';
+      saveSidebarState();
+    }
+  });
+}
+
+function saveSidebarState(){
+  const sidebar=document.getElementById('sidebar');
+  localStorage.setItem('tj2_sidebar_width',sidebar.offsetWidth);
+  localStorage.setItem('tj2_sidebar_hidden',sidebarHidden?'1':'0');
+}
+
+function restoreSidebarWidth(){
+  const sidebar=document.getElementById('sidebar');
+  const savedWidth=localStorage.getItem('tj2_sidebar_width');
+  const savedHidden=localStorage.getItem('tj2_sidebar_hidden');
+  if(savedHidden==='1'){
+    sidebarHidden=true;
+    sidebar.style.width='0px';
+    sidebar.classList.add('hidden');
+  } else if(savedWidth){
+    const w=parseInt(savedWidth);
+    if(w>=20&&w<=320){
+      sidebarHidden=false;
+      sidebar.style.width=w+'px';
+      sidebar.classList.remove('hidden');
+    }
+  }
+  updateToggleBtn();
+}
+  document.addEventListener('mousemove',e=>{
+    if(!dragging)return;
+    const newW=Math.max(0,Math.min(320,startW+(e.clientX-startX)));
+    if(newW<20){
+      sidebarHidden=true;
+      sidebar.style.width='0px';
+      sidebar.classList.add('hidden');
+    } else {
+      sidebarHidden=false;
+      sidebar.style.width=newW+'px';
+      sidebar.classList.remove('hidden');
+    }
+    updateToggleBtn();
+  });
+  document.addEventListener('mouseup',()=>{
     if(dragging){dragging=false;document.body.style.cursor='';document.body.style.userSelect='';}
   });
 }
@@ -587,6 +635,7 @@ function toggleSidebar(){
     sidebar.classList.remove('hidden');
   }
   updateToggleBtn();
+  saveSidebarState();
 }
 
 async function init(){
@@ -595,6 +644,7 @@ async function init(){
   currentYear=now.getFullYear();currentMonth=now.getMonth();
   qYear=now.getFullYear();
   initSidebar();
+  restoreSidebarWidth();
   renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModalDirect();closeDetailDirect();closeLightbox();}});
 }
