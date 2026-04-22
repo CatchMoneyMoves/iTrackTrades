@@ -601,10 +601,8 @@ function restoreSidebarWidth(){
       sidebar.classList.remove('hidden');
     }
   }
-  
-  document.addEventListener('mouseup',()=>{
-    if(dragging){dragging=false;document.body.style.cursor='';document.body.style.userSelect='';}
-  });
+  updateToggleBtn();
+}
 
 function updateToggleBtn(){
   document.getElementById('sidebar-toggle').innerHTML=sidebarHidden?'&#8250;':'&#8249;';
