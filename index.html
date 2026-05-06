@@ -450,9 +450,9 @@ async function cloudPullAll(){
     }
     if(!customPairs.length)customPairs=['XAUUSD','EURUSD','GBPUSD','USDJPY','USDCAD','AUDUSD','NZDUSD','US30','NAS100','SPX500'];
     if(!quickLinks.length)quickLinks=[{name:'TradingView',url:'https://tradingview.com'},{name:'Hyperliquid',url:'https://app.hyperliquid.xyz/portfolio'},{name:'Discord',url:'https://discord.com'}];
-    localStorage.setItem('tj2_data',JSON.stringify(data));
-    localStorage.setItem('tj2_links',JSON.stringify(quickLinks));
-    localStorage.setItem('tj2_pairs',JSON.stringify(customPairs));
+    safeSetItem('tj2_data',JSON.stringify(slimData(data)));
+    safeSetItem('tj2_links',JSON.stringify(quickLinks));
+    safeSetItem('tj2_pairs',JSON.stringify(customPairs));
     syncReady=true;
     showSyncStatus('synced','✓ Synced');
   }catch(err){
@@ -521,9 +521,57 @@ async function cloudDeleteAllTrades(){
 function autoResult(pnl){return pnl>0?'Win':pnl<0?'Loss':'Breakeven';}
 function pnlStr(val){const v=parseFloat(val)||0;return v>=0?`+$${v.toFixed(2)}`:`-$${Math.abs(v).toFixed(2)}`;}
 function pnlClass(val){return parseFloat(val)>=0?'green':'red';}
-function saveData(){localStorage.setItem('tj2_data',JSON.stringify(data));}
-function saveLinks(){localStorage.setItem('tj2_links',JSON.stringify(quickLinks));cloudSaveSettings();}
-function savePairs(){localStorage.setItem('tj2_pairs',JSON.stringify(customPairs));cloudSaveSettings();}
+
+// Safe localStorage write — swallows QuotaExceededError so it never blocks cloud sync
+function safeSetItem(key,value){
+  try{localStorage.setItem(key,value);return true;}
+  catch(err){
+    if(err&&(err.name==='QuotaExceededError'||err.code===22||err.code===1014)){
+      console.warn('[localStorage] quota full for',key,'- cloud sync still works');
+      return false;
+    }
+    console.warn('[localStorage] write failed for',key,err);
+    return false;
+  }
+}
+
+// Build a slim copy of data without screenshots — keeps localStorage cache small
+// Screenshots stay in memory + Supabase. Cache is only for fast reload, not source of truth.
+function slimData(d){
+  const out={};
+  for(const dk in d){
+    out[dk]={trades:(d[dk].trades||[]).map(t=>{
+      const{screenshots,...rest}=t;
+      return rest;
+    })};
+  }
+  return out;
+}
+
+function saveData(){safeSetItem('tj2_data',JSON.stringify(slimData(data)));}
+function saveLinks(){safeSetItem('tj2_links',JSON.stringify(quickLinks));cloudSaveSettings();}
+function savePairs(){safeSetItem('tj2_pairs',JSON.stringify(customPairs));cloudSaveSettings();}
+
+// Compress images before storing — resize to max 1400px width, JPEG @ 80% quality
+// Typically reduces file size 5-10x vs raw PNG screenshots
+function compressImage(dataUrl,maxWidth=1400,quality=0.8){
+  return new Promise((resolve)=>{
+    const img=new Image();
+    img.onload=()=>{
+      try{
+        let w=img.width,h=img.height;
+        if(w>maxWidth){h=Math.round(h*(maxWidth/w));w=maxWidth;}
+        const canvas=document.createElement('canvas');
+        canvas.width=w;canvas.height=h;
+        const ctx=canvas.getContext('2d');
+        ctx.drawImage(img,0,0,w,h);
+        resolve(canvas.toDataURL('image/jpeg',quality));
+      }catch(err){console.warn('Compression failed, using original:',err);resolve(dataUrl);}
+    };
+    img.onerror=()=>{console.warn('Image load failed, using original');resolve(dataUrl);};
+    img.src=dataUrl;
+  });
+}
 
 function getYTId(url){
   if(!url||!url.trim())return null;
@@ -581,8 +629,8 @@ function initSidebar(){
 
 function saveSidebarState(){
   const sidebar=document.getElementById('sidebar');
-  localStorage.setItem('tj2_sidebar_width',sidebar.offsetWidth);
-  localStorage.setItem('tj2_sidebar_hidden',sidebarHidden?'1':'0');
+  safeSetItem('tj2_sidebar_width',sidebar.offsetWidth);
+  safeSetItem('tj2_sidebar_hidden',sidebarHidden?'1':'0');
 }
 
 function restoreSidebarWidth(){
@@ -670,8 +718,8 @@ async function importData(e){
         if(parsed.quickLinks)quickLinks=parsed.quickLinks;
         if(parsed.customPairs)customPairs=parsed.customPairs;
         saveData();
-        localStorage.setItem('tj2_links',JSON.stringify(quickLinks));
-        localStorage.setItem('tj2_pairs',JSON.stringify(customPairs));
+        safeSetItem('tj2_links',JSON.stringify(quickLinks));
+        safeSetItem('tj2_pairs',JSON.stringify(customPairs));
         showSyncStatus('syncing','⟳ Uploading...');
         await cloudDeleteAllTrades();
         for(const dk of Object.keys(data)){
@@ -1152,7 +1200,11 @@ function handlePaste(e){
   for(const item of items){if(item.type.startsWith('image')){const r=new FileReader();r.onload=ev=>addShot(ev.target.result);r.readAsDataURL(item.getAsFile());}}
 }
 function handleFile(e){for(const f of e.target.files){const r=new FileReader();r.onload=ev=>addShot(ev.target.result);r.readAsDataURL(f);}}
-function addShot(url){pendingShots.push(url);renderSS();}
+async function addShot(url){
+  const compressed=await compressImage(url);
+  pendingShots.push(compressed);
+  renderSS();
+}
 function removeShot(i){pendingShots.splice(i,1);renderSS();}
 function renderSS(){
   const el=document.getElementById('ss-preview');if(!el)return;
