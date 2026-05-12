@@ -552,25 +552,9 @@ function saveData(){safeSetItem('tj2_data',JSON.stringify(slimData(data)));}
 function saveLinks(){safeSetItem('tj2_links',JSON.stringify(quickLinks));cloudSaveSettings();}
 function savePairs(){safeSetItem('tj2_pairs',JSON.stringify(customPairs));cloudSaveSettings();}
 
-// Compress images before storing — resize to max 1400px width, JPEG @ 80% quality
-// Typically reduces file size 5-10x vs raw PNG screenshots
-function compressImage(dataUrl,maxWidth=1400,quality=0.8){
-  return new Promise((resolve)=>{
-    const img=new Image();
-    img.onload=()=>{
-      try{
-        let w=img.width,h=img.height;
-        if(w>maxWidth){h=Math.round(h*(maxWidth/w));w=maxWidth;}
-        const canvas=document.createElement('canvas');
-        canvas.width=w;canvas.height=h;
-        const ctx=canvas.getContext('2d');
-        ctx.drawImage(img,0,0,w,h);
-        resolve(canvas.toDataURL('image/jpeg',quality));
-      }catch(err){console.warn('Compression failed, using original:',err);resolve(dataUrl);}
-    };
-    img.onerror=()=>{console.warn('Image load failed, using original');resolve(dataUrl);};
-    img.src=dataUrl;
-  });
+// Lossless — return image untouched, no resize or quality reduction
+function compressImage(dataUrl){
+  return Promise.resolve(dataUrl);
 }
 
 function getYTId(url){
