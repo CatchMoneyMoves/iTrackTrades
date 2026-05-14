@@ -80,6 +80,15 @@ body.unlocked{padding-top:28px}
 .day-num{font-size:0.72rem;font-weight:600;color:#64748b}
 .day-pnl{font-size:0.82rem;font-weight:700;margin-top:auto}
 .day-count{font-size:0.6rem;color:#64748b;margin-top:2px}
+.day-pills{display:flex;flex-wrap:wrap;gap:3px;margin:4px 0 0;align-content:flex-start}
+.day-pill{font-family:ui-monospace,'JetBrains Mono','SF Mono',monospace;font-size:0.55rem;font-weight:600;letter-spacing:0.3px;padding:1px 4px;border-radius:3px;cursor:pointer;border:none;line-height:1.4;transition:filter 0.12s;white-space:nowrap}
+.day-pill.win{background:rgba(74,222,128,0.18);color:#4ade80}
+.day-pill.loss{background:rgba(248,113,113,0.18);color:#f87171}
+.day-pill.be{background:rgba(167,139,250,0.18);color:#a78bfa}
+.day-pill:hover{filter:brightness(1.35)}
+.pair-filter-chip{display:inline-flex;align-items:center;gap:8px;background:#3b1f6e;border:1px solid #a78bfa;color:#a78bfa;border-radius:14px;padding:4px 10px 4px 12px;font-size:0.72rem;font-weight:600;margin-bottom:10px;font-family:ui-monospace,monospace;letter-spacing:0.5px}
+.pair-filter-chip button{background:none;border:none;color:#a78bfa;cursor:pointer;font-size:1rem;line-height:0.8;padding:0;opacity:0.65}
+.pair-filter-chip button:hover{opacity:1}
 
 .q-year-nav{display:flex;align-items:center;justify-content:center;gap:14px;padding:12px 20px 0}
 .q-year-btn{background:#1e1e2e;border:1px solid #2d2d3d;color:#e2e8f0;border-radius:7px;padding:4px 12px;cursor:pointer}
@@ -199,6 +208,7 @@ body.unlocked{padding-top:28px}
       <div class="hstat"><div class="hstat-val purple" id="hs-trades">0</div><div class="hstat-lbl">Trades</div></div>
       <div class="hstat"><div class="hstat-val neutral" id="hs-wr">—</div><div class="hstat-lbl">Win Rate</div></div>
       <div class="hstat"><div class="hstat-val muted" id="hs-pnl">$0</div><div class="hstat-lbl">All-time P&L</div></div>
+      <div class="hstat"><div class="hstat-val" id="hs-balance">$0</div><div class="hstat-lbl">Balance</div></div>
     </div>
   </div>
 
@@ -281,9 +291,25 @@ body.unlocked{padding-top:28px}
 <script>
 let data={},currentYear,currentMonth,activeDate,pnlChart=null,qdChart=null,currentQTrades=[];
 let qYear=new Date().getFullYear();
+let activePairFilter=null;
+let startingBalance=0;
 
 function pnlStr(val){const v=parseFloat(val)||0;return v>=0?`+$${v.toFixed(2)}`:`-$${Math.abs(v).toFixed(2)}`;}
 function pnlClass(val){return parseFloat(val)>=0?'green':'red';}
+
+// Group day's trades by symbol + outcome so each pill is single-colored.
+function groupSymbolsForDay(trades){
+  const buckets={};
+  trades.forEach(t=>{
+    if(!t.pair)return;
+    const outcome=t.result==='Win'?'win':t.result==='Loss'?'loss':'be';
+    const key=t.pair+':'+outcome;
+    if(!buckets[key])buckets[key]={pair:t.pair,outcome,count:0,pnl:0};
+    buckets[key].count++;
+    buckets[key].pnl+=parseFloat(t.pnl)||0;
+  });
+  return Object.values(buckets);
+}
 
 function getYTId(url){
   if(!url||!url.trim())return null;
@@ -326,6 +352,11 @@ async function loadData(){
   try{
     const {data:trades,error:e1}=await supabaseClient.from('trades').select('*').eq('user_id',OWNER_USER_ID);
     if(e1)throw e1;
+    // Try to fetch starting balance — graceful if column doesn't exist yet
+    try{
+      const {data:settings}=await supabaseClient.from('user_settings').select('*').eq('user_id',OWNER_USER_ID).maybeSingle();
+      if(settings&&settings.starting_balance!=null)startingBalance=parseFloat(settings.starting_balance)||0;
+    }catch(e){console.warn('Could not load starting balance:',e);}
     data={};
     (trades||[]).forEach(t=>{
       if(!data[t.date])data[t.date]={trades:[]};
@@ -401,7 +432,13 @@ function renderCalendar(){
       else if(losses>0&&wins===0&&bes===0)el.classList.add('has-loss');
       else if(bes>0&&wins===0&&losses===0)el.classList.add('has-be');
       else el.classList.add('has-mixed');
-      el.innerHTML=`<div class="day-num">${d}</div><div class="day-pnl ${pnlClass(pnl)}">${pnlStr(pnl)}</div><div class="day-count">${trades.length}t</div>`;
+      const groups=groupSymbolsForDay(trades);
+      const pillsHtml=groups.map(g=>{
+        const safePair=g.pair.replace(/'/g,"\\'");
+        const title=`${g.pair} • ${g.count} trade${g.count>1?'s':''} • ${pnlStr(g.pnl)}`;
+        return `<button class="day-pill ${g.outcome}" onclick="event.stopPropagation();openModal('${dk}','${safePair}')" title="${title}">${g.pair}${g.count>1?' ×'+g.count:''}</button>`;
+      }).join('');
+      el.innerHTML=`<div class="day-num">${d}</div>${pillsHtml?`<div class="day-pills">${pillsHtml}</div>`:''}<div class="day-pnl ${pnlClass(pnl)}">${pnlStr(pnl)}</div><div class="day-count">${trades.length}t</div>`;
     } else {
       el.innerHTML=`<div class="day-num">${d}</div>`;
     }
@@ -525,15 +562,16 @@ function openTradeDetailFromQ(dk,tradeId){
   if(idx>=0)openTradeDetail(dk,idx);
 }
 
-function openModal(dk){
+function openModal(dk,filterPair){
   activeDate=dk;
+  activePairFilter=filterPair||null;
   const d=new Date(dk+'T12:00:00');
   document.getElementById('modal-date-title').textContent=d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
   renderDaySummary();renderLoggedTrades();
   document.getElementById('overlay').classList.add('open');
 }
 function closeOverlay(e){if(e.target===document.getElementById('overlay'))closeModalDirect();}
-function closeModalDirect(){document.getElementById('overlay').classList.remove('open');}
+function closeModalDirect(){document.getElementById('overlay').classList.remove('open');activePairFilter=null;}
 
 function renderDaySummary(){
   const trades=(data[activeDate]||{}).trades||[];
@@ -548,10 +586,19 @@ function renderDaySummary(){
     <div class="sum-pill"><div class="sum-val">${wins}W / ${losses}L</div><div class="sum-lbl">Results</div></div>`;
 }
 function renderLoggedTrades(){
-  const trades=(data[activeDate]||{}).trades||[];
+  const allTrades=(data[activeDate]||{}).trades||[];
   const wrap=document.getElementById('logged-trades');
-  if(!trades.length){wrap.innerHTML='<div style="text-align:center;color:#475569;padding:20px;font-size:0.82rem">No trades this day</div>';return;}
-  wrap.innerHTML=trades.map((t,i)=>`
+  if(!allTrades.length){wrap.innerHTML='<div style="text-align:center;color:#475569;padding:20px;font-size:0.82rem">No trades this day</div>';return;}
+  const indexed=allTrades.map((t,i)=>({trade:t,idx:i}));
+  const filtered=activePairFilter?indexed.filter(x=>x.trade.pair===activePairFilter):indexed;
+  const chip=activePairFilter
+    ?`<div class="pair-filter-chip">Showing ${activePairFilter} only <button onclick="clearPairFilter()" title="Show all trades for this day">×</button></div>`
+    :'';
+  if(!filtered.length){
+    wrap.innerHTML=chip+`<div style="color:#475569;font-size:0.78rem;padding:14px;text-align:center">No ${activePairFilter} trades on this day.</div>`;
+    return;
+  }
+  wrap.innerHTML=chip+filtered.map(({trade:t,idx:i})=>`
     <div class="trade-card" onclick="openTradeDetail('${activeDate}',${i})">
       <div class="trade-card-header">
         <span class="tc-pair">${t.pair||'—'}</span>
@@ -567,6 +614,11 @@ function renderLoggedTrades(){
       ${t.tags&&t.tags.length?`<div class="tc-tags">${t.tags.map(g=>`<span class="tc-tag">${g}</span>`).join('')}</div>`:''}
       ${t.screenshots&&t.screenshots.length?`<div class="tc-shots">${t.screenshots.map(s=>`<img src="${s}" onclick="event.stopPropagation();openLightbox('${s}')">`).join('')}</div>`:''}
     </div>`).join('');
+}
+
+function clearPairFilter(){
+  activePairFilter=null;
+  renderLoggedTrades();
 }
 
 function openTradeDetail(dk,idx){
@@ -604,6 +656,12 @@ function updateStats(){
   document.getElementById('hs-wr').textContent=wr!==null?wr+'%':'—';
   document.getElementById('hs-pnl').textContent=pnlStr(pnl);
   document.getElementById('hs-pnl').style.color=pnl>0?'#4ade80':pnl<0?'#f87171':'#64748b';
+  const balance=startingBalance+pnl;
+  const balEl=document.getElementById('hs-balance');
+  if(balEl){
+    balEl.textContent=(balance<0?'-$':'$')+Math.abs(balance).toFixed(2);
+    balEl.style.color=startingBalance===0?'#94a3b8':(balance>=startingBalance?'#4ade80':'#f87171');
+  }
 }
 </script>
 </body>
