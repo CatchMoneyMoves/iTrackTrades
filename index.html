@@ -319,6 +319,7 @@ a{color:#a78bfa;text-decoration:none}
       <div class="hstat"><div class="hstat-val purple" id="hs-trades">0</div><div class="hstat-lbl">Trades</div></div>
       <div class="hstat"><div class="hstat-val neutral" id="hs-wr">—</div><div class="hstat-lbl">Win Rate</div></div>
       <div class="hstat"><div class="hstat-val muted" id="hs-pnl">$0</div><div class="hstat-lbl">All-time P&L</div></div>
+      <div class="hstat" onclick="editStartingBalance()" style="cursor:pointer" title="Click to set starting balance"><div class="hstat-val" id="hs-balance">$0</div><div class="hstat-lbl">Balance</div></div>
     </div>
   </div>
 
@@ -415,6 +416,7 @@ let currentQTrades=[],activeSetupFilter='All',pendingYT='';
 let qYear=new Date().getFullYear();
 let sidebarHidden=false;
 let activePairFilter=null;
+let startingBalance=0;
 
 const SETUPS=['Break & Retest','Candle Breakout','Bounce','N/A'];
 const TAGS=[
@@ -681,6 +683,7 @@ function toggleSidebar(){
 
 async function init(){
   await cloudPullAll();
+  startingBalance=parseFloat(localStorage.getItem('tj2_balance')||'0')||0;
   const now=new Date();
   currentYear=now.getFullYear();currentMonth=now.getMonth();
   qYear=now.getFullYear();
@@ -1299,6 +1302,22 @@ function updateStats(){
   document.getElementById('hs-wr').style.color='#94a3b8';
   document.getElementById('hs-pnl').textContent=pnlStr(pnl);
   document.getElementById('hs-pnl').style.color=pnl>0?'#4ade80':pnl<0?'#f87171':'#64748b';
+  const balance=startingBalance+pnl;
+  const balEl=document.getElementById('hs-balance');
+  if(balEl){
+    balEl.textContent=(balance<0?'-$':'$')+Math.abs(balance).toFixed(2);
+    balEl.style.color=startingBalance===0?'#94a3b8':(balance>=startingBalance?'#4ade80':'#f87171');
+  }
+}
+
+function editStartingBalance(){
+  const input=prompt('Set starting account balance (e.g. 10000):',startingBalance.toString());
+  if(input===null)return;
+  const val=parseFloat(input);
+  if(isNaN(val)){alert('Please enter a valid number.');return;}
+  startingBalance=val;
+  safeSetItem('tj2_balance',String(startingBalance));
+  updateStats();
 }
 
 async function doLogout(){
