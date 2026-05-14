@@ -116,6 +116,15 @@ a{color:#a78bfa;text-decoration:none}
 .cal-day.today .day-num{color:#a78bfa}
 .day-pnl{font-size:0.82rem;font-weight:700;margin-top:auto}
 .day-count{font-size:0.6rem;color:#64748b;margin-top:2px}
+.day-pills{display:flex;flex-wrap:wrap;gap:3px;margin:4px 0 0;align-content:flex-start}
+.day-pill{font-family:ui-monospace,'JetBrains Mono','SF Mono',monospace;font-size:0.55rem;font-weight:600;letter-spacing:0.3px;padding:1px 4px;border-radius:3px;cursor:pointer;border:none;line-height:1.4;transition:filter 0.12s;white-space:nowrap}
+.day-pill.win{background:rgba(74,222,128,0.18);color:#4ade80}
+.day-pill.loss{background:rgba(248,113,113,0.18);color:#f87171}
+.day-pill.be{background:rgba(167,139,250,0.18);color:#a78bfa}
+.day-pill:hover{filter:brightness(1.35)}
+.pair-filter-chip{display:inline-flex;align-items:center;gap:8px;background:#3b1f6e;border:1px solid #a78bfa;color:#a78bfa;border-radius:14px;padding:4px 10px 4px 12px;font-size:0.72rem;font-weight:600;margin-bottom:10px;font-family:ui-monospace,monospace;letter-spacing:0.5px}
+.pair-filter-chip button{background:none;border:none;color:#a78bfa;cursor:pointer;font-size:1rem;line-height:0.8;padding:0;opacity:0.65}
+.pair-filter-chip button:hover{opacity:1}
 .q-year-nav{display:flex;align-items:center;justify-content:center;gap:14px;padding:12px 20px 0;flex-shrink:0}
 .q-year-btn{background:#1e1e2e;border:1px solid #2d2d3d;color:#e2e8f0;border-radius:7px;padding:4px 12px;cursor:pointer;font-size:0.85rem}
 .q-year-btn:hover{background:#2d2d3d}
@@ -405,6 +414,7 @@ let editingIdx=null,editingDk=null,pnlChart=null,qdChart=null;
 let currentQTrades=[],activeSetupFilter='All',pendingYT='';
 let qYear=new Date().getFullYear();
 let sidebarHidden=false;
+let activePairFilter=null;
 
 const SETUPS=['Break & Retest','Candle Breakout','Bounce','N/A'];
 const TAGS=[
@@ -521,6 +531,21 @@ async function cloudDeleteAllTrades(){
 function autoResult(pnl){return pnl>0?'Win':pnl<0?'Loss':'Breakeven';}
 function pnlStr(val){const v=parseFloat(val)||0;return v>=0?`+$${v.toFixed(2)}`:`-$${Math.abs(v).toFixed(2)}`;}
 function pnlClass(val){return parseFloat(val)>=0?'green':'red';}
+
+// Group day's trades by symbol + outcome so each pill is single-colored.
+// MNQ win + MNQ loss on same day = two pills (won't average misleadingly).
+function groupSymbolsForDay(trades){
+  const buckets={};
+  trades.forEach(t=>{
+    if(!t.pair)return;
+    const outcome=t.result==='Win'?'win':t.result==='Loss'?'loss':'be';
+    const key=t.pair+':'+outcome;
+    if(!buckets[key])buckets[key]={pair:t.pair,outcome,count:0,pnl:0};
+    buckets[key].count++;
+    buckets[key].pnl+=parseFloat(t.pnl)||0;
+  });
+  return Object.values(buckets);
+}
 
 // Safe localStorage write — swallows QuotaExceededError so it never blocks cloud sync
 function safeSetItem(key,value){
@@ -811,7 +836,13 @@ function renderCalendar(){
       else if(losses>0&&wins===0&&bes===0)el.classList.add('has-loss');
       else if(bes>0&&wins===0&&losses===0)el.classList.add('has-be');
       else el.classList.add('has-mixed');
-      el.innerHTML=`<div class="day-num">${d}</div><div class="day-pnl ${pnlClass(pnl)}">${pnlStr(pnl)}</div><div class="day-count">${trades.length}t</div>`;
+      const groups=groupSymbolsForDay(trades);
+      const pillsHtml=groups.map(g=>{
+        const safePair=g.pair.replace(/'/g,"\\'");
+        const title=`${g.pair} • ${g.count} trade${g.count>1?'s':''} • ${pnlStr(g.pnl)}`;
+        return `<button class="day-pill ${g.outcome}" onclick="event.stopPropagation();openModal('${dk}','${safePair}')" title="${title}">${g.pair}${g.count>1?' ×'+g.count:''}</button>`;
+      }).join('');
+      el.innerHTML=`<div class="day-num">${d}</div>${pillsHtml?`<div class="day-pills">${pillsHtml}</div>`:''}<div class="day-pnl ${pnlClass(pnl)}">${pnlStr(pnl)}</div><div class="day-count">${trades.length}t</div>`;
     } else {
       el.innerHTML=`<div class="day-num">${d}</div>`;
     }
@@ -950,8 +981,9 @@ function openTradeDetailFromQ(dk,tradeId){
   if(idx>=0)openTradeDetail(dk,idx);
 }
 
-function openModal(dk){
+function openModal(dk,filterPair){
   activeDate=dk;editingIdx=null;editingDk=null;
+  activePairFilter=filterPair||null;
   const d=new Date(dk+'T12:00:00');
   document.getElementById('modal-date-title').textContent=d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
   renderDaySummary();renderLoggedTrades();
@@ -964,6 +996,7 @@ function closeModalDirect(){
   document.getElementById('overlay').classList.remove('open');
   document.removeEventListener('paste',handlePaste);
   pendingShots=[];pendingYT='';editingIdx=null;editingDk=null;
+  activePairFilter=null;
 }
 
 function renderDaySummary(){
@@ -980,10 +1013,20 @@ function renderDaySummary(){
 }
 
 function renderLoggedTrades(){
-  const trades=(data[activeDate]||{}).trades||[];
+  const allTrades=(data[activeDate]||{}).trades||[];
   const wrap=document.getElementById('logged-trades');
-  if(!trades.length){wrap.innerHTML='';return;}
-  wrap.innerHTML=trades.map((t,i)=>`
+  if(!allTrades.length){wrap.innerHTML='';return;}
+  // Preserve original index so edit/delete still target the right record after filtering
+  const indexed=allTrades.map((t,i)=>({trade:t,idx:i}));
+  const filtered=activePairFilter?indexed.filter(x=>x.trade.pair===activePairFilter):indexed;
+  const chip=activePairFilter
+    ?`<div class="pair-filter-chip">Showing ${activePairFilter} only <button onclick="clearPairFilter()" title="Show all trades for this day">×</button></div>`
+    :'';
+  if(!filtered.length){
+    wrap.innerHTML=chip+`<div style="color:#475569;font-size:0.78rem;padding:14px;text-align:center">No ${activePairFilter} trades logged on this day.</div>`;
+    return;
+  }
+  wrap.innerHTML=chip+filtered.map(({trade:t,idx:i})=>`
     <div class="trade-card" onclick="openTradeDetail('${activeDate}',${i})">
       <button class="tc-del" onclick="event.stopPropagation();deleteTrade(${i})">🗑</button>
       <div class="trade-card-header">
@@ -1000,6 +1043,11 @@ function renderLoggedTrades(){
       ${t.tags&&t.tags.length?`<div class="tc-tags">${t.tags.map(g=>`<span class="tc-tag">${g}</span>`).join('')}</div>`:''}
       ${t.screenshots&&t.screenshots.length?`<div class="tc-shots">${t.screenshots.map(s=>`<img src="${s}" onclick="event.stopPropagation();openLightbox('${s}')">`).join('')}</div>`:''}
     </div>`).join('');
+}
+
+function clearPairFilter(){
+  activePairFilter=null;
+  renderLoggedTrades();
 }
 
 function openTradeDetail(dk,idx){
@@ -1096,7 +1144,8 @@ function showTradeForm(existing){
   document.getElementById('add-trade-btn').style.display='none';
   const w=document.getElementById('trade-form-wrap');
   w.style.display='block';
-  const e=existing||{};
+  // New trade with an active pair filter? Pre-fill the pair field so the user doesn't re-type.
+  const e=existing||(activePairFilter?{pair:activePairFilter}:{});
   w.innerHTML=`<div class="trade-form">
     <div style="font-size:0.75rem;color:#a78bfa;margin-bottom:10px;font-weight:600">${existing?'✏️ Editing Trade':'New Trade'}</div>
     <div style="font-size:0.68rem;color:#475569;margin-bottom:10px">Result sets automatically — positive P&L = Win, negative = Loss</div>
