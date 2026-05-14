@@ -440,6 +440,7 @@ let startingBalance=0;
 let hlWallet='';
 let hlLastSync=0;
 let hlSyncing=false;
+let hlNetDeposits=0;
 
 const SETUPS=['Break & Retest','Candle Breakout','Bounce','N/A'];
 const TAGS=[
@@ -720,6 +721,7 @@ async function init(){
   // Hyperliquid local fallbacks (Supabase already loaded if available)
   if(!hlWallet)hlWallet=localStorage.getItem('tj2_hl_wallet')||'';
   hlLastSync=parseInt(localStorage.getItem('tj2_hl_lastsync')||'0',10)||0;
+  hlNetDeposits=parseFloat(localStorage.getItem('tj2_hl_netdeposits')||'0')||0;
   const now=new Date();
   currentYear=now.getFullYear();currentMonth=now.getMonth();
   qYear=now.getFullYear();
@@ -727,6 +729,8 @@ async function init(){
   restoreSidebarWidth();
   renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();renderHlStatus();
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModalDirect();closeDetailDirect();closeLightbox();}});
+  // Refresh ledger in background — keeps balance accurate without a click
+  if(hlWallet)syncHyperliquidLedger(true);
 }
 
 function showPage(id,el){
@@ -1341,16 +1345,26 @@ function updateStats(){
   document.getElementById('hs-wr').style.color='#94a3b8';
   document.getElementById('hs-pnl').textContent=pnlStr(pnl);
   document.getElementById('hs-pnl').style.color=pnl>0?'#4ade80':pnl<0?'#f87171':'#64748b';
-  const balance=startingBalance+pnl;
+  // Balance = baseline + net deposits/withdrawals (from HL ledger) + trade P&L
+  const balance=startingBalance+hlNetDeposits+pnl;
   const balEl=document.getElementById('hs-balance');
   if(balEl){
     balEl.textContent=(balance<0?'-$':'$')+Math.abs(balance).toFixed(2);
-    balEl.style.color=startingBalance===0?'#94a3b8':(balance>=startingBalance?'#4ade80':'#f87171');
+    // Color green if up from baseline+deposits, red if down, neutral if no baseline set yet
+    const reference=startingBalance+hlNetDeposits;
+    balEl.style.color=(startingBalance===0&&hlNetDeposits===0)?'#94a3b8':(balance>=reference?'#4ade80':'#f87171');
+    // Breakdown tooltip
+    const parts=[];
+    if(startingBalance)parts.push(`Baseline: $${startingBalance.toFixed(2)}`);
+    if(hlNetDeposits)parts.push(`Net deposits: ${hlNetDeposits>=0?'+':''}$${hlNetDeposits.toFixed(2)}`);
+    if(pnl)parts.push(`Trade P&L: ${pnl>=0?'+':''}$${pnl.toFixed(2)}`);
+    const parentEl=balEl.closest('.hstat');
+    if(parentEl)parentEl.title=parts.length?parts.join('  •  ')+`  =  $${balance.toFixed(2)}`:'Click to set starting balance';
   }
 }
 
 function editStartingBalance(){
-  const input=prompt('Set starting account balance (e.g. 10000):',startingBalance.toString());
+  const input=prompt('Baseline balance — your starting amount BEFORE auto-sync started (default 0). Deposits, withdrawals, and trade P&L from Hyperliquid will be added on top automatically.',startingBalance.toString());
   if(input===null)return;
   const val=parseFloat(input);
   if(isNaN(val)){alert('Please enter a valid number.');return;}
@@ -1473,6 +1487,53 @@ function groupFillsIntoTrades(fills){
   return trades;
 }
 
+// Fetch all non-funding ledger updates (deposits, withdrawals, transfers).
+// Hyperliquid requires startTime; we use 0 to get full history.
+async function fetchHyperliquidLedger(wallet){
+  const r=await fetch('https://api.hyperliquid.xyz/info',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      type:'userNonFundingLedgerUpdates',
+      user:wallet,
+      startTime:0,
+      endTime:Date.now()
+    })
+  });
+  if(!r.ok)throw new Error('Hyperliquid ledger API returned '+r.status);
+  const updates=await r.json();
+  if(!Array.isArray(updates))throw new Error('Unexpected ledger response shape');
+  return updates;
+}
+
+// Sum the signed USDC field across all ledger entries. The endpoint pre-signs
+// the value (negative = outgoing). Liquidations have no usdc field so they're
+// skipped here; their P&L still flows through userFills.
+function computeNetDeposits(ledgerUpdates){
+  let net=0;
+  for(const u of ledgerUpdates){
+    if(!u.delta||u.delta.usdc==null)continue;
+    net+=parseFloat(u.delta.usdc)||0;
+  }
+  return parseFloat(net.toFixed(2));
+}
+
+// Fetch ledger and update hlNetDeposits in place. Safe to call independently
+// (used on init and inside syncHyperliquid).
+async function syncHyperliquidLedger(silent){
+  if(!hlWallet)return;
+  try{
+    if(!silent)showSyncStatus('syncing','⟳ Pulling deposits/withdrawals…');
+    const ledger=await fetchHyperliquidLedger(hlWallet);
+    hlNetDeposits=computeNetDeposits(ledger);
+    safeSetItem('tj2_hl_netdeposits',String(hlNetDeposits));
+    updateStats();
+  }catch(err){
+    console.warn('Ledger sync failed (continuing):',err);
+    // Non-fatal — keep using cached value
+  }
+}
+
 async function syncHyperliquid(){
   if(!hlWallet){
     alert('Set your Hyperliquid wallet address first (click "Set wallet…" in the sidebar).');
@@ -1485,8 +1546,13 @@ async function syncHyperliquid(){
   showSyncStatus('syncing','⟳ Pulling Hyperliquid fills…');
   try{
     const fills=await fetchHyperliquidFills(hlWallet);
+    // Always pull ledger too — deposits/withdrawals affect balance even when no new trades
+    await syncHyperliquidLedger(true);
     if(!fills.length){
-      showSyncStatus('synced','✓ No fills found');
+      showSyncStatus('synced','✓ Updated (no fills)');
+      hlLastSync=Date.now();
+      safeSetItem('tj2_hl_lastsync',String(hlLastSync));
+      renderHlStatus();
       return;
     }
     const grouped=groupFillsIntoTrades(fills);
