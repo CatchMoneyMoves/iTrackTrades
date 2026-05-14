@@ -61,6 +61,18 @@ a{color:#a78bfa;text-decoration:none}
 .clear-btn:hover{background:#2d0f0f;border-color:#f87171}
 .logout-btn{background:#1e1e2e;border:1px solid #2d2d3d;color:#64748b;border-radius:7px;padding:8px;cursor:pointer;font-size:0.75rem;margin:2px 5px;text-align:left;display:flex;align-items:center;gap:7px;white-space:nowrap;overflow:hidden;width:calc(100% - 10px)}
 .logout-btn:hover{background:#2d2d3d;color:#e2e8f0}
+.hl-sync-btn{background:#0e1f33;border:1px solid #06b6d4;color:#06b6d4;border-radius:7px;padding:8px;cursor:pointer;font-size:0.75rem;margin:2px 5px;text-align:left;display:flex;align-items:center;gap:7px;width:calc(100% - 10px);transition:all 0.15s}
+.hl-sync-btn:hover{background:#173045}
+.hl-sync-btn:disabled{opacity:0.5;cursor:not-allowed}
+.hl-wallet-row{padding:4px 12px;font-size:0.7rem;color:#94a3b8;font-family:ui-monospace,monospace;display:flex;align-items:center;gap:6px;cursor:pointer;border-radius:7px;margin:1px 5px}
+.hl-wallet-row:hover{background:#1a1a28}
+.hl-wallet-row .hl-addr{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hl-wallet-row .hl-edit{opacity:0.5;font-size:0.7rem}
+.hl-wallet-row:hover .hl-edit{opacity:1}
+.hl-last-sync{padding:2px 12px 6px;font-size:0.62rem;color:#475569}
+.badge-draft{font-size:0.6rem;padding:2px 6px;border-radius:10px;font-weight:700;background:#0e1f33;color:#06b6d4;border:1px solid #0e7490;letter-spacing:0.5px}
+.tc-fees{color:#fbbf24;font-family:ui-monospace,monospace;font-size:0.66rem}
+.tc-source-icon{color:#06b6d4;font-size:0.85rem;cursor:help}
 .ql-item{display:flex;align-items:center;padding:5px 10px;margin:1px 5px;border-radius:7px;gap:4px;overflow:hidden;min-width:0;flex-shrink:0}
 .ql-item:hover{background:#1a1a28}
 .ql-item a{flex:1;color:#94a3b8;text-decoration:none;font-size:0.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
@@ -297,6 +309,14 @@ a{color:#a78bfa;text-decoration:none}
     <div class="sidebar-section">Account</div>
     <button class="logout-btn" onclick="doLogout()"><span style="font-size:12px;flex-shrink:0">🔓</span> Sign Out</button>
     <hr class="sidebar-divider">
+    <div class="sidebar-section">Hyperliquid</div>
+    <div class="hl-wallet-row" id="hl-wallet-row" onclick="setHlWallet()" title="Click to set or change wallet">
+      <span class="hl-addr" id="hl-addr">Set wallet…</span>
+      <span class="hl-edit">✏️</span>
+    </div>
+    <button class="hl-sync-btn" id="hl-sync-btn" onclick="syncHyperliquid()"><span style="font-size:12px;flex-shrink:0">🔄</span> Sync now</button>
+    <div class="hl-last-sync" id="hl-last-sync"></div>
+    <hr class="sidebar-divider">
     <div class="sidebar-section">Quick Links</div>
     <div id="quick-links-list"></div>
     <div class="quick-link-add" onclick="toggleAddLink()"><span style="font-size:12px;flex-shrink:0">+</span> Add link</div>
@@ -417,6 +437,9 @@ let qYear=new Date().getFullYear();
 let sidebarHidden=false;
 let activePairFilter=null;
 let startingBalance=0;
+let hlWallet='';
+let hlLastSync=0;
+let hlSyncing=false;
 
 const SETUPS=['Break & Retest','Candle Breakout','Bounce','N/A'];
 const TAGS=[
@@ -453,12 +476,18 @@ async function cloudPullAll(){
         id:t.id,pair:t.pair,timeframe:t.timeframe,pnl:t.pnl,
         result:t.result,bias:t.bias,setup:t.setup,plan:t.plan,
         notes:t.notes,tags:t.tags||[],screenshots:t.screenshots||[],
-        youtube:t.youtube||''
+        youtube:t.youtube||'',
+        source:t.source||'manual',
+        fees:parseFloat(t.fees)||0,
+        hl_fill_ids:t.hl_fill_ids||[],
+        is_draft:!!t.is_draft
       });
     });
     if(settings){
       quickLinks=settings.quick_links||[];
       customPairs=settings.custom_pairs||[];
+      if(settings.hl_wallet)hlWallet=settings.hl_wallet;
+      if(settings.starting_balance!=null)startingBalance=parseFloat(settings.starting_balance)||0;
     }
     if(!customPairs.length)customPairs=['XAUUSD','EURUSD','GBPUSD','USDJPY','USDCAD','AUDUSD','NZDUSD','US30','NAS100','SPX500'];
     if(!quickLinks.length)quickLinks=[{name:'TradingView',url:'https://tradingview.com'},{name:'Hyperliquid',url:'https://app.hyperliquid.xyz/portfolio'},{name:'Discord',url:'https://discord.com'}];
@@ -489,7 +518,11 @@ async function cloudUpsertTrade(dk,trade){
       pnl:trade.pnl||0,result:trade.result||null,bias:trade.bias||null,
       setup:trade.setup||null,plan:trade.plan||null,notes:trade.notes||null,
       tags:trade.tags||[],screenshots:trade.screenshots||[],
-      youtube:trade.youtube||null,updated_at:new Date().toISOString()
+      youtube:trade.youtube||null,updated_at:new Date().toISOString(),
+      source:trade.source||'manual',
+      fees:trade.fees||0,
+      hl_fill_ids:trade.hl_fill_ids||[],
+      is_draft:!!trade.is_draft
     };
     const {error}=await supabaseClient.from('trades').upsert(row);
     if(error)throw error;
@@ -516,7 +549,7 @@ async function cloudDeleteTrade(tradeId){
 async function cloudSaveSettings(){
   if(!currentUser||!syncReady)return;
   try{
-    const row={user_id:currentUser.id,quick_links:quickLinks,custom_pairs:customPairs,updated_at:new Date().toISOString()};
+    const row={user_id:currentUser.id,quick_links:quickLinks,custom_pairs:customPairs,hl_wallet:hlWallet||null,starting_balance:startingBalance||0,updated_at:new Date().toISOString()};
     const {error}=await supabaseClient.from('user_settings').upsert(row);
     if(error)throw error;
   }catch(err){console.error('Settings save failed:',err);}
@@ -684,12 +717,15 @@ function toggleSidebar(){
 async function init(){
   await cloudPullAll();
   startingBalance=parseFloat(localStorage.getItem('tj2_balance')||'0')||0;
+  // Hyperliquid local fallbacks (Supabase already loaded if available)
+  if(!hlWallet)hlWallet=localStorage.getItem('tj2_hl_wallet')||'';
+  hlLastSync=parseInt(localStorage.getItem('tj2_hl_lastsync')||'0',10)||0;
   const now=new Date();
   currentYear=now.getFullYear();currentMonth=now.getMonth();
   qYear=now.getFullYear();
   initSidebar();
   restoreSidebarWidth();
-  renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();
+  renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();renderHlStatus();
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModalDirect();closeDetailDirect();closeLightbox();}});
 }
 
@@ -1033,7 +1069,10 @@ function renderLoggedTrades(){
     <div class="trade-card" onclick="openTradeDetail('${activeDate}',${i})">
       <button class="tc-del" onclick="event.stopPropagation();deleteTrade(${i})">🗑</button>
       <div class="trade-card-header">
+        ${t.source==='hyperliquid'?`<span class="tc-source-icon" title="Auto-synced from Hyperliquid">⚡</span>`:''}
         <span class="tc-pair">${t.pair||'—'}</span>
+        ${t.fees?`<span class="tc-fees">−$${parseFloat(t.fees).toFixed(2)} fees</span>`:''}
+        ${t.is_draft?`<span class="badge-draft">DRAFT</span>`:''}
         ${t.result?`<span class="badge-${t.result==='Win'?'win':t.result==='Loss'?'loss':'be'}">${t.result}</span>`:''}
         <span class="tc-pnl ${pnlClass(t.pnl)}">${pnlStr(t.pnl)}</span>
       </div>
@@ -1317,7 +1356,194 @@ function editStartingBalance(){
   if(isNaN(val)){alert('Please enter a valid number.');return;}
   startingBalance=val;
   safeSetItem('tj2_balance',String(startingBalance));
+  cloudSaveSettings();
   updateStats();
+}
+
+// ============================================================
+// HYPERLIQUID AUTO-SYNC
+// ============================================================
+// Pulls fills from Hyperliquid's public REST API and groups them
+// into closed round-trip trades, then inserts as draft journal
+// entries. Net P&L = closedPnl − fees (commission). The fees
+// stay attached for display next to the pair.
+// ============================================================
+
+function renderHlStatus(){
+  const addrEl=document.getElementById('hl-addr');
+  if(addrEl){
+    if(hlWallet){
+      const shortAddr=hlWallet.slice(0,6)+'…'+hlWallet.slice(-4);
+      addrEl.textContent=shortAddr;
+      addrEl.title=hlWallet;
+    } else {
+      addrEl.textContent='Set wallet…';
+      addrEl.title='Click to add your Hyperliquid wallet';
+    }
+  }
+  const lastEl=document.getElementById('hl-last-sync');
+  if(lastEl){
+    if(hlLastSync){
+      const diffMin=Math.round((Date.now()-hlLastSync)/60000);
+      let txt;
+      if(diffMin<1)txt='Last sync: just now';
+      else if(diffMin<60)txt=`Last sync: ${diffMin}m ago`;
+      else if(diffMin<1440)txt=`Last sync: ${Math.round(diffMin/60)}h ago`;
+      else txt=`Last sync: ${Math.round(diffMin/1440)}d ago`;
+      lastEl.textContent=txt;
+    } else {
+      lastEl.textContent='Never synced';
+    }
+  }
+}
+
+function setHlWallet(){
+  const cur=hlWallet||'';
+  const input=prompt('Hyperliquid wallet address (0x...):',cur);
+  if(input===null)return;
+  const v=input.trim();
+  if(v && !/^0x[a-fA-F0-9]{40}$/.test(v)){
+    alert('That doesn\'t look like a valid wallet address. It should start with 0x and be 42 characters total.');
+    return;
+  }
+  hlWallet=v;
+  safeSetItem('tj2_hl_wallet',hlWallet);
+  cloudSaveSettings();
+  renderHlStatus();
+}
+
+async function fetchHyperliquidFills(wallet){
+  const r=await fetch('https://api.hyperliquid.xyz/info',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({type:'userFills',user:wallet,aggregateByTime:true})
+  });
+  if(!r.ok)throw new Error('Hyperliquid API returned '+r.status);
+  const fills=await r.json();
+  if(!Array.isArray(fills))throw new Error('Unexpected response shape from Hyperliquid');
+  return fills;
+}
+
+// Walk fills per coin, group into closed round-trip trades using running position.
+// A trade starts on the first non-flat fill and ends when running position returns to ~0.
+// Open positions (not yet closed) are skipped — they'll be captured next sync.
+function groupFillsIntoTrades(fills){
+  const byCoin={};
+  fills.forEach(f=>{
+    const c=f.coin;
+    if(!byCoin[c])byCoin[c]=[];
+    byCoin[c].push(f);
+  });
+  const trades=[];
+  for(const coin in byCoin){
+    const sorted=byCoin[coin].slice().sort((a,b)=>a.time-b.time);
+    let trade=null;
+    for(const f of sorted){
+      const sz=parseFloat(f.sz)||0;
+      const fee=parseFloat(f.fee)||0;
+      const cp=parseFloat(f.closedPnl)||0;
+      const startPos=parseFloat(f.startPosition)||0;
+      const signedDelta=(f.side==='B'?sz:-sz);
+      const endPos=startPos+signedDelta;
+      if(!trade){
+        trade={
+          coin,
+          direction:signedDelta>0?'long':'short',
+          priceP_L:cp,
+          fees:fee,
+          fillIds:[String(f.tid)],
+          entryTime:f.time,
+          exitTime:f.time,
+          entryPrice:parseFloat(f.px)||0
+        };
+      } else {
+        trade.fees+=fee;
+        trade.priceP_L+=cp;
+        trade.fillIds.push(String(f.tid));
+        trade.exitTime=f.time;
+      }
+      // Trade closes when running position returns to 0 (small float epsilon)
+      if(Math.abs(endPos)<1e-9){
+        trades.push(trade);
+        trade=null;
+      }
+    }
+    // Open trade left over → not yet closed, skip
+  }
+  return trades;
+}
+
+async function syncHyperliquid(){
+  if(!hlWallet){
+    alert('Set your Hyperliquid wallet address first (click "Set wallet…" in the sidebar).');
+    return;
+  }
+  if(hlSyncing)return;
+  const btn=document.getElementById('hl-sync-btn');
+  hlSyncing=true;
+  if(btn)btn.disabled=true;
+  showSyncStatus('syncing','⟳ Pulling Hyperliquid fills…');
+  try{
+    const fills=await fetchHyperliquidFills(hlWallet);
+    if(!fills.length){
+      showSyncStatus('synced','✓ No fills found');
+      return;
+    }
+    const grouped=groupFillsIntoTrades(fills);
+    // Build a set of all known fill IDs from existing journal trades
+    const knownIds=new Set();
+    Object.values(data).forEach(d=>(d.trades||[]).forEach(t=>{
+      (t.hl_fill_ids||[]).forEach(id=>knownIds.add(String(id)));
+    }));
+    const toAdd=grouped.filter(g=>!g.fillIds.some(id=>knownIds.has(String(id))));
+    if(!toAdd.length){
+      showSyncStatus('synced','✓ Already up to date');
+      hlLastSync=Date.now();
+      safeSetItem('tj2_hl_lastsync',String(hlLastSync));
+      renderHlStatus();
+      return;
+    }
+    let added=0;
+    for(const g of toAdd){
+      const dt=new Date(g.exitTime);
+      const dk=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+      const netPnl=parseFloat((g.priceP_L-g.fees).toFixed(2));
+      const trade={
+        id:'hl_'+g.fillIds[0],
+        pair:g.coin,
+        timeframe:'',
+        pnl:netPnl,
+        result:netPnl>0?'Win':netPnl<0?'Loss':'Breakeven',
+        bias:g.direction==='long'?'Bullish':'Bearish',
+        setup:'',
+        plan:'',
+        notes:`Auto-synced from Hyperliquid · ${g.direction.toUpperCase()} · Entry ${new Date(g.entryTime).toLocaleString()} · Exit ${new Date(g.exitTime).toLocaleString()}`,
+        tags:[],
+        screenshots:[],
+        youtube:'',
+        source:'hyperliquid',
+        fees:parseFloat(g.fees.toFixed(2)),
+        hl_fill_ids:g.fillIds,
+        is_draft:true
+      };
+      if(!data[dk])data[dk]={trades:[]};
+      data[dk].trades.push(trade);
+      await cloudUpsertTrade(dk,trade);
+      added++;
+    }
+    hlLastSync=Date.now();
+    safeSetItem('tj2_hl_lastsync',String(hlLastSync));
+    saveData();
+    renderCalendar();renderQuarterlyOverview();updateStats();renderHlStatus();
+    showSyncStatus('synced',`✓ Added ${added} draft trade${added>1?'s':''}`);
+  }catch(err){
+    console.error('Hyperliquid sync failed:',err);
+    showSyncStatus('error','⚠ Sync failed');
+    alert('Hyperliquid sync failed: '+(err.message||err));
+  }finally{
+    hlSyncing=false;
+    if(btn)btn.disabled=false;
+  }
 }
 
 async function doLogout(){
