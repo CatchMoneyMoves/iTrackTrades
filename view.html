@@ -152,6 +152,12 @@ body.unlocked{padding-top:28px}
 .tc-tag{font-size:0.6rem;background:#1e1e2e;color:#94a3b8;border-radius:4px;padding:2px 5px}
 .tc-shots{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}
 .tc-shots img{height:48px;border-radius:5px;object-fit:cover;border:1px solid #2d2d3d;cursor:pointer}
+.badge-draft{font-size:0.6rem;padding:2px 6px;border-radius:10px;font-weight:700;background:#0e1f33;color:#06b6d4;border:1px solid #0e7490;letter-spacing:0.5px}
+.tc-fees{color:#fbbf24;font-family:ui-monospace,monospace;font-size:0.66rem}
+.tc-source-icon{color:#06b6d4;font-size:0.85rem;cursor:help}
+.tc-size{color:#94a3b8;font-family:ui-monospace,monospace;font-size:0.66rem}
+.tc-prices{color:#94a3b8;font-family:ui-monospace,monospace;font-size:0.66rem}
+.tc-prices .arrow{color:#475569;margin:0 3px}
 .detail-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-bottom:11px}
 .detail-item{background:#0d0d12;border-radius:7px;padding:7px 9px}
 .detail-lbl{font-size:0.6rem;color:#475569;text-transform:uppercase;margin-bottom:2px}
@@ -293,9 +299,29 @@ let data={},currentYear,currentMonth,activeDate,pnlChart=null,qdChart=null,curre
 let qYear=new Date().getFullYear();
 let activePairFilter=null;
 let startingBalance=0;
+let hlNetDeposits=0;
 
 function pnlStr(val){const v=parseFloat(val)||0;return v>=0?`+$${v.toFixed(2)}`:`-$${Math.abs(v).toFixed(2)}`;}
 function pnlClass(val){return parseFloat(val)>=0?'green':'red';}
+
+// Smart number formatting for prices and sizes (crypto-friendly)
+function fmtPrice(p){
+  const v=parseFloat(p);
+  if(!isFinite(v)||v==null)return '';
+  const abs=Math.abs(v);
+  if(abs>=1000)return v.toFixed(2);
+  if(abs>=10)return v.toFixed(3);
+  if(abs>=1)return v.toFixed(4);
+  return v.toFixed(5);
+}
+function fmtSize(s){
+  const v=parseFloat(s);
+  if(!isFinite(v)||v==null)return '';
+  const abs=Math.abs(v);
+  if(abs>=100)return v.toFixed(2);
+  if(abs>=1)return v.toFixed(3);
+  return v.toFixed(4);
+}
 
 // Group day's trades by symbol + outcome so each pill is single-colored.
 function groupSymbolsForDay(trades){
@@ -352,11 +378,15 @@ async function loadData(){
   try{
     const {data:trades,error:e1}=await supabaseClient.from('trades').select('*').eq('user_id',OWNER_USER_ID);
     if(e1)throw e1;
-    // Try to fetch starting balance — graceful if column doesn't exist yet
+    // Try to fetch starting balance + HL wallet — graceful if columns don't exist yet
+    let hlWallet='';
     try{
       const {data:settings}=await supabaseClient.from('user_settings').select('*').eq('user_id',OWNER_USER_ID).maybeSingle();
-      if(settings&&settings.starting_balance!=null)startingBalance=parseFloat(settings.starting_balance)||0;
-    }catch(e){console.warn('Could not load starting balance:',e);}
+      if(settings){
+        if(settings.starting_balance!=null)startingBalance=parseFloat(settings.starting_balance)||0;
+        if(settings.hl_wallet)hlWallet=settings.hl_wallet;
+      }
+    }catch(e){console.warn('Could not load settings:',e);}
     data={};
     (trades||[]).forEach(t=>{
       if(!data[t.date])data[t.date]={trades:[]};
@@ -364,7 +394,14 @@ async function loadData(){
         id:t.id,pair:t.pair,timeframe:t.timeframe,pnl:t.pnl,
         result:t.result,bias:t.bias,setup:t.setup,plan:t.plan,
         notes:t.notes,tags:t.tags||[],screenshots:t.screenshots||[],
-        youtube:t.youtube||''
+        youtube:t.youtube||'',
+        source:t.source||'manual',
+        fees:parseFloat(t.fees)||0,
+        hl_fill_ids:t.hl_fill_ids||[],
+        is_draft:!!t.is_draft,
+        size:t.size!=null?parseFloat(t.size):null,
+        entry_price:t.entry_price!=null?parseFloat(t.entry_price):null,
+        exit_price:t.exit_price!=null?parseFloat(t.exit_price):null
       });
     });
     const now=new Date();
@@ -374,6 +411,28 @@ async function loadData(){
     document.getElementById('app-loading').style.display='none';
     document.body.classList.add('unlocked');
     document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModalDirect();closeDetailDirect();closeLightbox();}});
+    // Fetch HL ledger in background so balance reflects deposits/withdrawals
+    if(hlWallet){
+      try{
+        const r=await fetch('https://api.hyperliquid.xyz/info',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({type:'userNonFundingLedgerUpdates',user:hlWallet,startTime:0,endTime:Date.now()})
+        });
+        if(r.ok){
+          const updates=await r.json();
+          if(Array.isArray(updates)){
+            let net=0;
+            for(const u of updates){
+              if(!u.delta||u.delta.usdc==null)continue;
+              net+=parseFloat(u.delta.usdc)||0;
+            }
+            hlNetDeposits=parseFloat(net.toFixed(2));
+            updateStats();
+          }
+        }
+      }catch(e){console.warn('Ledger fetch failed:',e);}
+    }
   }catch(err){
     console.error(err);
     alert('Failed to load data: ' + (err.message || JSON.stringify(err)));
@@ -601,7 +660,10 @@ function renderLoggedTrades(){
   wrap.innerHTML=chip+filtered.map(({trade:t,idx:i})=>`
     <div class="trade-card" onclick="openTradeDetail('${activeDate}',${i})">
       <div class="trade-card-header">
+        ${t.source==='hyperliquid'?`<span class="tc-source-icon" title="Auto-synced from Hyperliquid">⚡</span>`:''}
         <span class="tc-pair">${t.pair||'—'}</span>
+        ${t.fees?`<span class="tc-fees">−$${parseFloat(t.fees).toFixed(2)} fees</span>`:''}
+        ${t.is_draft?`<span class="badge-draft">DRAFT</span>`:''}
         ${t.result?`<span class="badge-${t.result==='Win'?'win':t.result==='Loss'?'loss':'be'}">${t.result}</span>`:''}
         <span class="tc-pnl ${pnlClass(t.pnl)}">${pnlStr(t.pnl)}</span>
       </div>
@@ -609,6 +671,8 @@ function renderLoggedTrades(){
         ${t.timeframe?`<span>${t.timeframe}</span>`:''}
         ${t.setup?`<span>${t.setup}</span>`:''}
         ${t.bias?`<span>Bias: ${t.bias}</span>`:''}
+        ${t.size?`<span class="tc-size">Size: ${fmtSize(t.size)}</span>`:''}
+        ${t.entry_price&&t.exit_price?`<span class="tc-prices">$${fmtPrice(t.entry_price)}<span class="arrow">→</span>$${fmtPrice(t.exit_price)}</span>`:''}
       </div>
       ${t.notes?`<div class="tc-notes-preview">${t.notes.length>120?t.notes.slice(0,120)+'…':t.notes}</div>`:''}
       ${t.tags&&t.tags.length?`<div class="tc-tags">${t.tags.map(g=>`<span class="tc-tag">${g}</span>`).join('')}</div>`:''}
@@ -629,7 +693,11 @@ function openTradeDetail(dk,idx){
   document.getElementById('detail-content').innerHTML=`
     <div class="detail-grid">
       <div class="detail-item"><div class="detail-lbl">Result</div><div class="detail-val ${t.result==='Win'?'green':t.result==='Loss'?'red':'purple'}">${t.result||'—'}</div></div>
-      <div class="detail-item"><div class="detail-lbl">P&L</div><div class="detail-val ${pnlClass(t.pnl)}">${pnlStr(t.pnl)}</div></div>
+      <div class="detail-item"><div class="detail-lbl">Net P&L</div><div class="detail-val ${pnlClass(t.pnl)}">${pnlStr(t.pnl)}</div></div>
+      ${t.fees?`<div class="detail-item"><div class="detail-lbl">Fees / Commission</div><div class="detail-val" style="color:#fbbf24">−$${parseFloat(t.fees).toFixed(2)}</div></div>`:''}
+      ${t.size?`<div class="detail-item"><div class="detail-lbl">Size</div><div class="detail-val" style="font-family:ui-monospace,monospace">${fmtSize(t.size)} ${t.pair||''}</div></div>`:''}
+      ${t.entry_price?`<div class="detail-item"><div class="detail-lbl">Entry Price</div><div class="detail-val" style="font-family:ui-monospace,monospace">$${fmtPrice(t.entry_price)}</div></div>`:''}
+      ${t.exit_price?`<div class="detail-item"><div class="detail-lbl">Exit Price</div><div class="detail-val" style="font-family:ui-monospace,monospace">$${fmtPrice(t.exit_price)}</div></div>`:''}
       <div class="detail-item"><div class="detail-lbl">Timeframe</div><div class="detail-val">${t.timeframe||'—'}</div></div>
       <div class="detail-item"><div class="detail-lbl">Bias</div><div class="detail-val">${t.bias||'—'}</div></div>
       <div class="detail-item"><div class="detail-lbl">Setup</div><div class="detail-val">${t.setup||'—'}</div></div>
@@ -656,11 +724,18 @@ function updateStats(){
   document.getElementById('hs-wr').textContent=wr!==null?wr+'%':'—';
   document.getElementById('hs-pnl').textContent=pnlStr(pnl);
   document.getElementById('hs-pnl').style.color=pnl>0?'#4ade80':pnl<0?'#f87171':'#64748b';
-  const balance=startingBalance+pnl;
+  const balance=startingBalance+hlNetDeposits+pnl;
   const balEl=document.getElementById('hs-balance');
   if(balEl){
     balEl.textContent=(balance<0?'-$':'$')+Math.abs(balance).toFixed(2);
-    balEl.style.color=startingBalance===0?'#94a3b8':(balance>=startingBalance?'#4ade80':'#f87171');
+    const reference=startingBalance+hlNetDeposits;
+    balEl.style.color=(startingBalance===0&&hlNetDeposits===0)?'#94a3b8':(balance>=reference?'#4ade80':'#f87171');
+    const parts=[];
+    if(startingBalance)parts.push(`Baseline: $${startingBalance.toFixed(2)}`);
+    if(hlNetDeposits)parts.push(`Net deposits: ${hlNetDeposits>=0?'+':''}$${hlNetDeposits.toFixed(2)}`);
+    if(pnl)parts.push(`Trade P&L: ${pnl>=0?'+':''}$${pnl.toFixed(2)}`);
+    const parentEl=balEl.closest('.hstat');
+    if(parentEl)parentEl.title=parts.length?parts.join('  •  ')+`  =  $${balance.toFixed(2)}`:'';
   }
 }
 </script>
