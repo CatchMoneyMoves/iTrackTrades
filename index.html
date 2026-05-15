@@ -342,7 +342,7 @@ a{color:#a78bfa;text-decoration:none}
       <div class="hstat"><div class="hstat-val purple" id="hs-trades">0</div><div class="hstat-lbl">Trades</div></div>
       <div class="hstat"><div class="hstat-val neutral" id="hs-wr">—</div><div class="hstat-lbl">Win Rate</div></div>
       <div class="hstat"><div class="hstat-val muted" id="hs-pnl">$0</div><div class="hstat-lbl">All-time P&L</div></div>
-      <div class="hstat" onclick="editStartingBalance()" style="cursor:pointer" title="Click to set HL starting balance"><div class="hstat-val" id="hs-balance">$0</div><div class="hstat-lbl">HL Balance</div></div>
+      <div class="hstat" onclick="editStartingBalance()" style="cursor:pointer" title="Click to anchor HL Balance to your current actual amount"><div class="hstat-val" id="hs-balance">$0</div><div class="hstat-lbl">HL Balance</div></div>
     </div>
   </div>
 
@@ -443,7 +443,6 @@ let startingBalance=0;
 let hlWallet='';
 let hlLastSync=0;
 let hlSyncing=false;
-let hlNetDeposits=0;
 
 const SETUPS=['Break & Retest','Candle Breakout','Bounce','N/A'];
 const TAGS=[
@@ -475,7 +474,7 @@ function showSyncStatus(state, text){
 //
 // IMPORTANT: localStorage is NEVER allowed to clobber a value successfully
 // pulled from Supabase. The previous version overwrote startingBalance,
-// hlWallet, hlNetDeposits, and hlLastSync with stale localStorage values in
+// hlWallet, and hlLastSync with stale localStorage values in
 // init(), which is why Balance went stale on fresh devices/sessions.
 // ============================================================
 
@@ -510,7 +509,6 @@ async function cloudPullAll(){
       // All HL-related state lives in cloud — these load authoritatively.
       hlWallet=settings.hl_wallet||'';
       startingBalance=settings.starting_balance!=null?parseFloat(settings.starting_balance)||0:0;
-      hlNetDeposits=settings.hl_net_deposits!=null?parseFloat(settings.hl_net_deposits)||0:0;
       hlLastSync=settings.hl_last_sync!=null?parseInt(settings.hl_last_sync)||0:0;
     }
     if(!customPairs.length)customPairs=['XAUUSD','EURUSD','GBPUSD','USDJPY','USDCAD','AUDUSD','NZDUSD','US30','NAS100','SPX500'];
@@ -521,7 +519,6 @@ async function cloudPullAll(){
     safeSetItem('tj2_pairs',JSON.stringify(customPairs));
     safeSetItem('tj2_balance',String(startingBalance));
     safeSetItem('tj2_hl_wallet',hlWallet);
-    safeSetItem('tj2_hl_netdeposits',String(hlNetDeposits));
     safeSetItem('tj2_hl_lastsync',String(hlLastSync));
     syncReady=true;
     showSyncStatus('synced','✓ Synced');
@@ -533,7 +530,6 @@ async function cloudPullAll(){
     customPairs=JSON.parse(localStorage.getItem('tj2_pairs')||'[]');
     hlWallet=localStorage.getItem('tj2_hl_wallet')||'';
     startingBalance=parseFloat(localStorage.getItem('tj2_balance')||'0')||0;
-    hlNetDeposits=parseFloat(localStorage.getItem('tj2_hl_netdeposits')||'0')||0;
     hlLastSync=parseInt(localStorage.getItem('tj2_hl_lastsync')||'0',10)||0;
     if(!customPairs.length)customPairs=['XAUUSD','EURUSD','GBPUSD','USDJPY','USDCAD','AUDUSD','NZDUSD','US30','NAS100','SPX500'];
     if(!quickLinks.length)quickLinks=[{name:'TradingView',url:'https://tradingview.com'},{name:'Hyperliquid',url:'https://app.hyperliquid.xyz/portfolio'},{name:'Discord',url:'https://discord.com'}];
@@ -584,7 +580,7 @@ async function cloudDeleteTrade(tradeId){
 }
 
 // Single source of truth for persisting settings. Always called after
-// hlWallet / startingBalance / hlNetDeposits / hlLastSync changes.
+// hlWallet / startingBalance / hlLastSync changes.
 async function cloudSaveSettings(){
   if(!currentUser||!syncReady)return;
   try{
@@ -594,7 +590,6 @@ async function cloudSaveSettings(){
       custom_pairs:customPairs,
       hl_wallet:hlWallet||null,
       starting_balance:startingBalance||0,
-      hl_net_deposits:hlNetDeposits||0,
       hl_last_sync:hlLastSync||0,
       updated_at:new Date().toISOString()
     };
@@ -783,7 +778,7 @@ function toggleSidebar(){
 
 async function init(){
   await cloudPullAll();
-  // NOTE: HL state (wallet, startingBalance, hlNetDeposits, hlLastSync) is loaded
+  // NOTE: HL state (wallet, startingBalance, hlLastSync) is loaded
   // authoritatively from Supabase inside cloudPullAll(). DO NOT re-read from
   // localStorage here — that was the old bug that wiped cloud values to 0.
   const now=new Date();
@@ -793,9 +788,6 @@ async function init(){
   restoreSidebarWidth();
   renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();renderHlStatus();
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModalDirect();closeDetailDirect();closeLightbox();}});
-  // Background ledger refresh so Balance is fresh without a manual click.
-  // Errors here surface briefly (4s) instead of being swallowed.
-  if(hlWallet)syncHyperliquidLedger(false);
 }
 
 function showPage(id,el){
@@ -1419,9 +1411,13 @@ function closeLightbox(){document.getElementById('lightbox').classList.remove('o
 // HEADER STATS
 // ============================================================
 // "All-time P&L" = sum of P&L from ALL journal trades (Webull + HL combined)
-// "HL Balance"   = startingBalance + hlNetDeposits + (P&L from source='hyperliquid' trades only)
-//                  → This number should match what you see in your HL portfolio.
-//                  → Webull/futures trades do NOT inflate this.
+// "HL Balance"   = startingBalance + sum(P&L from source='hyperliquid' trades)
+//                  → startingBalance is set manually by clicking the number.
+//                  → When you click and enter a value, that becomes the
+//                    locked-in baseline AT THIS MOMENT. Every HL trade
+//                    synced after that point adjusts it automatically.
+//                  → No API ledger parsing, no deposit detection. Manual
+//                    baseline + live P&L = your real balance.
 // ============================================================
 function updateStats(){
   const all=Object.values(data).flatMap(d=>d.trades||[]);
@@ -1434,28 +1430,50 @@ function updateStats(){
   document.getElementById('hs-wr').style.color='#94a3b8';
   document.getElementById('hs-pnl').textContent=pnlStr(totalPnl);
   document.getElementById('hs-pnl').style.color=totalPnl>0?'#4ade80':totalPnl<0?'#f87171':'#64748b';
-  // HL Balance — scoped to Hyperliquid only so it matches the HL app
-  const hlBalance=startingBalance+hlNetDeposits+hlPnl;
+  // HL Balance — startingBalance already includes the offset that makes
+  // (startingBalance + hlPnl) equal whatever the user entered at set time.
+  // As new HL trades sync, hlPnl grows and balance auto-adjusts.
+  const hlBalance=startingBalance+hlPnl;
   const balEl=document.getElementById('hs-balance');
   if(balEl){
     balEl.textContent=(hlBalance<0?'-$':'$')+Math.abs(hlBalance).toFixed(2);
-    const reference=startingBalance+hlNetDeposits;
-    balEl.style.color=(startingBalance===0&&hlNetDeposits===0&&hlPnl===0)?'#94a3b8':(hlBalance>=reference?'#4ade80':'#f87171');
-    const parts=[];
-    if(startingBalance)parts.push(`Baseline: $${startingBalance.toFixed(2)}`);
-    if(hlNetDeposits)parts.push(`Net deposits: ${hlNetDeposits>=0?'+':''}$${hlNetDeposits.toFixed(2)}`);
-    if(hlPnl)parts.push(`HL trade P&L: ${hlPnl>=0?'+':''}$${hlPnl.toFixed(2)}`);
+    if(startingBalance===0&&hlPnl===0){
+      balEl.style.color='#94a3b8';
+    } else {
+      // Compare to baseline (the entered value at last set time).
+      // Baseline = startingBalance + hlPnlAtSetTime, but we don't store hlPnlAtSetTime.
+      // Instead, color by sign of total balance: green positive, red negative.
+      balEl.style.color=hlBalance>=0?'#4ade80':'#f87171';
+    }
     const parentEl=balEl.closest('.hstat');
-    if(parentEl)parentEl.title=parts.length?parts.join('  •  ')+`  =  $${hlBalance.toFixed(2)}`:'Click to set HL starting balance';
+    if(parentEl){
+      const parts=[];
+      parts.push(`Baseline offset: $${startingBalance.toFixed(2)}`);
+      parts.push(`HL trade P&L: ${hlPnl>=0?'+':''}$${hlPnl.toFixed(2)}`);
+      parentEl.title=parts.join('  •  ')+`  =  $${hlBalance.toFixed(2)}\n\nClick to re-anchor to your current actual HL balance.`;
+    }
   }
 }
 
+// Re-anchor the HL Balance to whatever the user types in. We compute
+// startingBalance so that (startingBalance + currentHlPnl) equals the
+// entered amount. Future HL trades shift hlPnl, balance updates live.
 async function editStartingBalance(){
-  const input=prompt('HL baseline balance — your starting amount BEFORE auto-sync started (default 0). Deposits, withdrawals, and HL trade P&L will be added on top automatically.',startingBalance.toString());
+  const all=Object.values(data).flatMap(d=>d.trades||[]);
+  const hlPnl=all.filter(t=>t.source==='hyperliquid').reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+  const currentDisplayed=startingBalance+hlPnl;
+  const input=prompt(
+    `Enter your CURRENT actual HL account balance.\n\n`+
+    `Currently displayed: $${currentDisplayed.toFixed(2)}\n`+
+    `HL trade P&L tracked: ${hlPnl>=0?'+':''}$${hlPnl.toFixed(2)}\n\n`+
+    `After you set this, every new HL trade you sync will adjust the balance automatically.`,
+    currentDisplayed.toFixed(2)
+  );
   if(input===null)return;
-  const val=parseFloat(input);
-  if(isNaN(val)){alert('Please enter a valid number.');return;}
-  startingBalance=val;
+  const entered=parseFloat(input);
+  if(isNaN(entered)){alert('Please enter a valid number.');return;}
+  // Solve: entered = startingBalance + hlPnl → startingBalance = entered - hlPnl
+  startingBalance=parseFloat((entered-hlPnl).toFixed(2));
   safeSetItem('tj2_balance',String(startingBalance));
   await cloudSaveSettings();
   updateStats();
@@ -1469,9 +1487,8 @@ async function editStartingBalance(){
 // entries. Net P&L = closedPnl − fees (commission). The fees
 // stay attached for display next to the pair.
 //
-// hlNetDeposits is computed from userNonFundingLedgerUpdates and
-// persisted to Supabase via cloudSaveSettings() so it works
-// across devices.
+// HL Balance is anchored manually by the user via the header click.
+// No ledger API parsing — deposits/withdrawals are handled by re-anchoring.
 // ============================================================
 
 function renderHlStatus(){
@@ -1603,55 +1620,8 @@ function groupFillsIntoTrades(fills){
   return trades;
 }
 
-// Fetch all non-funding ledger updates (deposits, withdrawals, transfers).
-// Hyperliquid requires startTime; we use 0 to get full history.
-async function fetchHyperliquidLedger(wallet){
-  const r=await fetch('https://api.hyperliquid.xyz/info',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({
-      type:'userNonFundingLedgerUpdates',
-      user:wallet,
-      startTime:0,
-      endTime:Date.now()
-    })
-  });
-  if(!r.ok)throw new Error('Hyperliquid ledger API returned '+r.status);
-  const updates=await r.json();
-  if(!Array.isArray(updates))throw new Error('Unexpected ledger response shape');
-  return updates;
-}
-
-// Sum the signed USDC field across all ledger entries. The endpoint pre-signs
-// the value (negative = outgoing). Liquidations have no usdc field so they're
-// skipped here; their P&L still flows through userFills.
-function computeNetDeposits(ledgerUpdates){
-  let net=0;
-  for(const u of ledgerUpdates){
-    if(!u.delta||u.delta.usdc==null)continue;
-    net+=parseFloat(u.delta.usdc)||0;
-  }
-  return parseFloat(net.toFixed(2));
-}
-
-// Fetch ledger and update hlNetDeposits. Persists to Supabase so the value
-// follows you across devices. Pass silent=true to suppress the success toast.
-async function syncHyperliquidLedger(silent){
-  if(!hlWallet)return;
-  try{
-    if(!silent)showSyncStatus('syncing','⟳ Pulling deposits/withdrawals…');
-    const ledger=await fetchHyperliquidLedger(hlWallet);
-    hlNetDeposits=computeNetDeposits(ledger);
-    safeSetItem('tj2_hl_netdeposits',String(hlNetDeposits));
-    await cloudSaveSettings();
-    updateStats();
-    if(!silent)showSyncStatus('synced','✓ Ledger updated');
-  }catch(err){
-    console.warn('Ledger sync failed:',err);
-    // Surface briefly so silent failures don't hide stale balances
-    showSyncStatus('error','⚠ HL ledger sync failed');
-  }
-}
+// Fetch and trade-grouping helpers above. No ledger fetching anymore —
+// HL Balance is now anchored manually by the user via editStartingBalance().
 
 async function syncHyperliquid(){
   if(!hlWallet){
@@ -1665,8 +1635,6 @@ async function syncHyperliquid(){
   showSyncStatus('syncing','⟳ Pulling Hyperliquid fills…');
   try{
     const fills=await fetchHyperliquidFills(hlWallet);
-    // Always pull ledger too — deposits/withdrawals affect balance even when no new trades
-    await syncHyperliquidLedger(true);
     if(!fills.length){
       hlLastSync=Date.now();
       safeSetItem('tj2_hl_lastsync',String(hlLastSync));
