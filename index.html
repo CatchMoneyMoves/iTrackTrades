@@ -73,6 +73,9 @@ a{color:#a78bfa;text-decoration:none}
 .badge-draft{font-size:0.6rem;padding:2px 6px;border-radius:10px;font-weight:700;background:#0e1f33;color:#06b6d4;border:1px solid #0e7490;letter-spacing:0.5px}
 .tc-fees{color:#fbbf24;font-family:ui-monospace,monospace;font-size:0.66rem}
 .tc-source-icon{color:#06b6d4;font-size:0.85rem;cursor:help}
+.tc-size{color:#94a3b8;font-family:ui-monospace,monospace;font-size:0.66rem}
+.tc-prices{color:#94a3b8;font-family:ui-monospace,monospace;font-size:0.66rem}
+.tc-prices .arrow{color:#475569;margin:0 3px}
 .ql-item{display:flex;align-items:center;padding:5px 10px;margin:1px 5px;border-radius:7px;gap:4px;overflow:hidden;min-width:0;flex-shrink:0}
 .ql-item:hover{background:#1a1a28}
 .ql-item a{flex:1;color:#94a3b8;text-decoration:none;font-size:0.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
@@ -481,7 +484,10 @@ async function cloudPullAll(){
         source:t.source||'manual',
         fees:parseFloat(t.fees)||0,
         hl_fill_ids:t.hl_fill_ids||[],
-        is_draft:!!t.is_draft
+        is_draft:!!t.is_draft,
+        size:t.size!=null?parseFloat(t.size):null,
+        entry_price:t.entry_price!=null?parseFloat(t.entry_price):null,
+        exit_price:t.exit_price!=null?parseFloat(t.exit_price):null
       });
     });
     if(settings){
@@ -523,7 +529,10 @@ async function cloudUpsertTrade(dk,trade){
       source:trade.source||'manual',
       fees:trade.fees||0,
       hl_fill_ids:trade.hl_fill_ids||[],
-      is_draft:!!trade.is_draft
+      is_draft:!!trade.is_draft,
+      size:trade.size!=null?trade.size:null,
+      entry_price:trade.entry_price!=null?trade.entry_price:null,
+      exit_price:trade.exit_price!=null?trade.exit_price:null
     };
     const {error}=await supabaseClient.from('trades').upsert(row);
     if(error)throw error;
@@ -567,6 +576,25 @@ async function cloudDeleteAllTrades(){
 function autoResult(pnl){return pnl>0?'Win':pnl<0?'Loss':'Breakeven';}
 function pnlStr(val){const v=parseFloat(val)||0;return v>=0?`+$${v.toFixed(2)}`:`-$${Math.abs(v).toFixed(2)}`;}
 function pnlClass(val){return parseFloat(val)>=0?'green':'red';}
+
+// Smart number formatting — fewer decimals for large numbers, more for small (crypto-friendly)
+function fmtPrice(p){
+  const v=parseFloat(p);
+  if(!isFinite(v)||v==null)return '';
+  const abs=Math.abs(v);
+  if(abs>=1000)return v.toFixed(2);
+  if(abs>=10)return v.toFixed(3);
+  if(abs>=1)return v.toFixed(4);
+  return v.toFixed(5);
+}
+function fmtSize(s){
+  const v=parseFloat(s);
+  if(!isFinite(v)||v==null)return '';
+  const abs=Math.abs(v);
+  if(abs>=100)return v.toFixed(2);
+  if(abs>=1)return v.toFixed(3);
+  return v.toFixed(4);
+}
 
 // Group day's trades by symbol + outcome so each pill is single-colored.
 // MNQ win + MNQ loss on same day = two pills (won't average misleadingly).
@@ -1084,6 +1112,8 @@ function renderLoggedTrades(){
         ${t.timeframe?`<span>${t.timeframe}</span>`:''}
         ${t.setup?`<span>${t.setup}</span>`:''}
         ${t.bias?`<span>Bias: ${t.bias}</span>`:''}
+        ${t.size?`<span class="tc-size">Size: ${fmtSize(t.size)}</span>`:''}
+        ${t.entry_price&&t.exit_price?`<span class="tc-prices">$${fmtPrice(t.entry_price)}<span class="arrow">→</span>$${fmtPrice(t.exit_price)}</span>`:''}
       </div>
       ${t.notes?`<div class="tc-notes-preview">${t.notes.length>120?t.notes.slice(0,120)+'…':t.notes}</div>`:''}
       ${t.tags&&t.tags.length?`<div class="tc-tags">${t.tags.map(g=>`<span class="tc-tag">${g}</span>`).join('')}</div>`:''}
@@ -1105,7 +1135,11 @@ function openTradeDetail(dk,idx){
   document.getElementById('detail-content').innerHTML=`
     <div class="detail-grid">
       <div class="detail-item"><div class="detail-lbl">Result</div><div class="detail-val ${t.result==='Win'?'green':t.result==='Loss'?'red':'purple'}">${t.result||'—'}</div></div>
-      <div class="detail-item"><div class="detail-lbl">P&L</div><div class="detail-val ${pnlClass(t.pnl)}">${pnlStr(t.pnl)}</div></div>
+      <div class="detail-item"><div class="detail-lbl">Net P&L</div><div class="detail-val ${pnlClass(t.pnl)}">${pnlStr(t.pnl)}</div></div>
+      ${t.fees?`<div class="detail-item"><div class="detail-lbl">Fees / Commission</div><div class="detail-val" style="color:#fbbf24">−$${parseFloat(t.fees).toFixed(2)}</div></div>`:''}
+      ${t.size?`<div class="detail-item"><div class="detail-lbl">Size</div><div class="detail-val" style="font-family:ui-monospace,monospace">${fmtSize(t.size)} ${t.pair||''}</div></div>`:''}
+      ${t.entry_price?`<div class="detail-item"><div class="detail-lbl">Entry Price</div><div class="detail-val" style="font-family:ui-monospace,monospace">$${fmtPrice(t.entry_price)}</div></div>`:''}
+      ${t.exit_price?`<div class="detail-item"><div class="detail-lbl">Exit Price</div><div class="detail-val" style="font-family:ui-monospace,monospace">$${fmtPrice(t.exit_price)}</div></div>`:''}
       <div class="detail-item"><div class="detail-lbl">Timeframe</div><div class="detail-val">${t.timeframe||'—'}</div></div>
       <div class="detail-item"><div class="detail-lbl">Bias</div><div class="detail-val">${t.bias||'—'}</div></div>
       <div class="detail-item"><div class="detail-lbl">Setup</div><div class="detail-val">${t.setup||'—'}</div></div>
@@ -1441,6 +1475,10 @@ async function fetchHyperliquidFills(wallet){
 // Walk fills per coin, group into closed round-trip trades using running position.
 // A trade starts on the first non-flat fill and ends when running position returns to ~0.
 // Open positions (not yet closed) are skipped — they'll be captured next sync.
+// Computes:
+//   - size: total position size opened (= total closed)
+//   - entryPrice: VWAP of opening fills (fills that grew the position)
+//   - exitPrice: VWAP of closing fills (fills that reduced the position)
 function groupFillsIntoTrades(fills){
   const byCoin={};
   fills.forEach(f=>{
@@ -1454,30 +1492,51 @@ function groupFillsIntoTrades(fills){
     let trade=null;
     for(const f of sorted){
       const sz=parseFloat(f.sz)||0;
+      const px=parseFloat(f.px)||0;
       const fee=parseFloat(f.fee)||0;
       const cp=parseFloat(f.closedPnl)||0;
       const startPos=parseFloat(f.startPosition)||0;
       const signedDelta=(f.side==='B'?sz:-sz);
       const endPos=startPos+signedDelta;
       if(!trade){
+        // First fill: opens the position
+        const dirSign=signedDelta>0?1:-1;
         trade={
           coin,
-          direction:signedDelta>0?'long':'short',
+          direction:dirSign>0?'long':'short',
+          dirSign,
           priceP_L:cp,
           fees:fee,
           fillIds:[String(f.tid)],
           entryTime:f.time,
           exitTime:f.time,
-          entryPrice:parseFloat(f.px)||0
+          openSize:sz,        // total notional that got opened
+          openNotional:sz*px, // for VWAP entry
+          closeSize:0,        // total notional that got closed
+          closeNotional:0     // for VWAP exit
         };
       } else {
         trade.fees+=fee;
         trade.priceP_L+=cp;
         trade.fillIds.push(String(f.tid));
         trade.exitTime=f.time;
+        // Determine if this fill adds to or reduces the position
+        // (sign of fill matches trade direction → adding; opposite → closing)
+        const fillDirMatchesTrade=(trade.dirSign>0 && signedDelta>0)||(trade.dirSign<0 && signedDelta<0);
+        if(fillDirMatchesTrade){
+          trade.openSize+=sz;
+          trade.openNotional+=sz*px;
+        } else {
+          trade.closeSize+=sz;
+          trade.closeNotional+=sz*px;
+        }
       }
       // Trade closes when running position returns to 0 (small float epsilon)
       if(Math.abs(endPos)<1e-9){
+        // Finalize VWAP prices
+        trade.entryPrice=trade.openSize>0?trade.openNotional/trade.openSize:0;
+        trade.exitPrice=trade.closeSize>0?trade.closeNotional/trade.closeSize:0;
+        trade.size=trade.openSize;
         trades.push(trade);
         trade=null;
       }
@@ -1590,7 +1649,10 @@ async function syncHyperliquid(){
         source:'hyperliquid',
         fees:parseFloat(g.fees.toFixed(2)),
         hl_fill_ids:g.fillIds,
-        is_draft:true
+        is_draft:true,
+        size:parseFloat(g.size.toFixed(8)),
+        entry_price:parseFloat(g.entryPrice.toFixed(8)),
+        exit_price:parseFloat(g.exitPrice.toFixed(8))
       };
       if(!data[dk])data[dk]={trades:[]};
       data[dk].trades.push(trade);
