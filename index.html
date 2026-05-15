@@ -342,7 +342,7 @@ a{color:#a78bfa;text-decoration:none}
       <div class="hstat"><div class="hstat-val purple" id="hs-trades">0</div><div class="hstat-lbl">Trades</div></div>
       <div class="hstat"><div class="hstat-val neutral" id="hs-wr">—</div><div class="hstat-lbl">Win Rate</div></div>
       <div class="hstat"><div class="hstat-val muted" id="hs-pnl">$0</div><div class="hstat-lbl">All-time P&L</div></div>
-      <div class="hstat" onclick="editStartingBalance()" style="cursor:pointer" title="Click to set starting balance"><div class="hstat-val" id="hs-balance">$0</div><div class="hstat-lbl">Balance</div></div>
+      <div class="hstat" onclick="editStartingBalance()" style="cursor:pointer" title="Click to set HL starting balance"><div class="hstat-val" id="hs-balance">$0</div><div class="hstat-lbl">HL Balance</div></div>
     </div>
   </div>
 
@@ -463,7 +463,21 @@ function showSyncStatus(state, text){
   el.className='show '+state;
   el.textContent=text;
   if(state==='synced'){setTimeout(()=>{el.classList.remove('show');},1500);}
+  else if(state==='error'){setTimeout(()=>{el.classList.remove('show');},4000);}
 }
+
+// ============================================================
+// CLOUD SYNC (Supabase)
+// ============================================================
+// Source of truth ordering:
+//   1. Supabase (authoritative) — pulled on every load + after every write
+//   2. localStorage (cache only) — used as fallback if Supabase is unreachable
+//
+// IMPORTANT: localStorage is NEVER allowed to clobber a value successfully
+// pulled from Supabase. The previous version overwrote startingBalance,
+// hlWallet, hlNetDeposits, and hlLastSync with stale localStorage values in
+// init(), which is why Balance went stale on fresh devices/sessions.
+// ============================================================
 
 async function cloudPullAll(){
   if(!currentUser)return;
@@ -493,21 +507,34 @@ async function cloudPullAll(){
     if(settings){
       quickLinks=settings.quick_links||[];
       customPairs=settings.custom_pairs||[];
-      if(settings.hl_wallet)hlWallet=settings.hl_wallet;
-      if(settings.starting_balance!=null)startingBalance=parseFloat(settings.starting_balance)||0;
+      // All HL-related state lives in cloud — these load authoritatively.
+      hlWallet=settings.hl_wallet||'';
+      startingBalance=settings.starting_balance!=null?parseFloat(settings.starting_balance)||0:0;
+      hlNetDeposits=settings.hl_net_deposits!=null?parseFloat(settings.hl_net_deposits)||0:0;
+      hlLastSync=settings.hl_last_sync!=null?parseInt(settings.hl_last_sync)||0:0;
     }
     if(!customPairs.length)customPairs=['XAUUSD','EURUSD','GBPUSD','USDJPY','USDCAD','AUDUSD','NZDUSD','US30','NAS100','SPX500'];
     if(!quickLinks.length)quickLinks=[{name:'TradingView',url:'https://tradingview.com'},{name:'Hyperliquid',url:'https://app.hyperliquid.xyz/portfolio'},{name:'Discord',url:'https://discord.com'}];
+    // Update cache for next offline load
     safeSetItem('tj2_data',JSON.stringify(slimData(data)));
     safeSetItem('tj2_links',JSON.stringify(quickLinks));
     safeSetItem('tj2_pairs',JSON.stringify(customPairs));
+    safeSetItem('tj2_balance',String(startingBalance));
+    safeSetItem('tj2_hl_wallet',hlWallet);
+    safeSetItem('tj2_hl_netdeposits',String(hlNetDeposits));
+    safeSetItem('tj2_hl_lastsync',String(hlLastSync));
     syncReady=true;
     showSyncStatus('synced','✓ Synced');
   }catch(err){
     console.error('Pull failed:',err);
+    // OFFLINE FALLBACK ONLY — Supabase wasn't reachable. Load whatever cache we have.
     data=JSON.parse(localStorage.getItem('tj2_data')||'{}');
     quickLinks=JSON.parse(localStorage.getItem('tj2_links')||'[]');
     customPairs=JSON.parse(localStorage.getItem('tj2_pairs')||'[]');
+    hlWallet=localStorage.getItem('tj2_hl_wallet')||'';
+    startingBalance=parseFloat(localStorage.getItem('tj2_balance')||'0')||0;
+    hlNetDeposits=parseFloat(localStorage.getItem('tj2_hl_netdeposits')||'0')||0;
+    hlLastSync=parseInt(localStorage.getItem('tj2_hl_lastsync')||'0',10)||0;
     if(!customPairs.length)customPairs=['XAUUSD','EURUSD','GBPUSD','USDJPY','USDCAD','AUDUSD','NZDUSD','US30','NAS100','SPX500'];
     if(!quickLinks.length)quickLinks=[{name:'TradingView',url:'https://tradingview.com'},{name:'Hyperliquid',url:'https://app.hyperliquid.xyz/portfolio'},{name:'Discord',url:'https://discord.com'}];
     syncReady=true;
@@ -556,10 +583,21 @@ async function cloudDeleteTrade(tradeId){
   }
 }
 
+// Single source of truth for persisting settings. Always called after
+// hlWallet / startingBalance / hlNetDeposits / hlLastSync changes.
 async function cloudSaveSettings(){
   if(!currentUser||!syncReady)return;
   try{
-    const row={user_id:currentUser.id,quick_links:quickLinks,custom_pairs:customPairs,hl_wallet:hlWallet||null,starting_balance:startingBalance||0,updated_at:new Date().toISOString()};
+    const row={
+      user_id:currentUser.id,
+      quick_links:quickLinks,
+      custom_pairs:customPairs,
+      hl_wallet:hlWallet||null,
+      starting_balance:startingBalance||0,
+      hl_net_deposits:hlNetDeposits||0,
+      hl_last_sync:hlLastSync||0,
+      updated_at:new Date().toISOString()
+    };
     const {error}=await supabaseClient.from('user_settings').upsert(row);
     if(error)throw error;
   }catch(err){console.error('Settings save failed:',err);}
@@ -745,11 +783,9 @@ function toggleSidebar(){
 
 async function init(){
   await cloudPullAll();
-  startingBalance=parseFloat(localStorage.getItem('tj2_balance')||'0')||0;
-  // Hyperliquid local fallbacks (Supabase already loaded if available)
-  if(!hlWallet)hlWallet=localStorage.getItem('tj2_hl_wallet')||'';
-  hlLastSync=parseInt(localStorage.getItem('tj2_hl_lastsync')||'0',10)||0;
-  hlNetDeposits=parseFloat(localStorage.getItem('tj2_hl_netdeposits')||'0')||0;
+  // NOTE: HL state (wallet, startingBalance, hlNetDeposits, hlLastSync) is loaded
+  // authoritatively from Supabase inside cloudPullAll(). DO NOT re-read from
+  // localStorage here — that was the old bug that wiped cloud values to 0.
   const now=new Date();
   currentYear=now.getFullYear();currentMonth=now.getMonth();
   qYear=now.getFullYear();
@@ -757,8 +793,9 @@ async function init(){
   restoreSidebarWidth();
   renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();renderHlStatus();
   document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModalDirect();closeDetailDirect();closeLightbox();}});
-  // Refresh ledger in background — keeps balance accurate without a click
-  if(hlWallet)syncHyperliquidLedger(true);
+  // Background ledger refresh so Balance is fresh without a manual click.
+  // Errors here surface briefly (4s) instead of being swallowed.
+  if(hlWallet)syncHyperliquidLedger(false);
 }
 
 function showPage(id,el){
@@ -1331,6 +1368,8 @@ async function saveTrade(){
   const pnl=parseFloat(document.getElementById('tf-pnl').value)||0;
   const ytInp=document.getElementById('yt-input');
   const existingId=(editingIdx!==null&&data[activeDate]&&data[activeDate].trades[editingIdx])?data[activeDate].trades[editingIdx].id:null;
+  // Preserve source/fees/draft fields when editing an auto-synced HL trade
+  const existing=(editingIdx!==null&&data[activeDate])?data[activeDate].trades[editingIdx]:null;
   const t={
     id:existingId||Date.now(),
     pair,
@@ -1342,7 +1381,14 @@ async function saveTrade(){
     notes:document.getElementById('tf-notes').value,
     tags:[...activeTags],
     screenshots:[...pendingShots],
-    youtube:ytInp?ytInp.value.trim():pendingYT||''
+    youtube:ytInp?ytInp.value.trim():pendingYT||'',
+    source:existing?existing.source:'manual',
+    fees:existing?existing.fees:0,
+    hl_fill_ids:existing?existing.hl_fill_ids:[],
+    is_draft:existing?false:false,  // editing always clears draft flag
+    size:existing?existing.size:null,
+    entry_price:existing?existing.entry_price:null,
+    exit_price:existing?existing.exit_price:null
   };
   if(!data[activeDate])data[activeDate]={trades:[]};
   if(editingIdx!==null){data[activeDate].trades[editingIdx]=t;}
@@ -1369,42 +1415,49 @@ async function deleteTrade(idx){
 function openLightbox(src){document.getElementById('lb-img').src=src;document.getElementById('lightbox').classList.add('open');}
 function closeLightbox(){document.getElementById('lightbox').classList.remove('open');}
 
+// ============================================================
+// HEADER STATS
+// ============================================================
+// "All-time P&L" = sum of P&L from ALL journal trades (Webull + HL combined)
+// "HL Balance"   = startingBalance + hlNetDeposits + (P&L from source='hyperliquid' trades only)
+//                  → This number should match what you see in your HL portfolio.
+//                  → Webull/futures trades do NOT inflate this.
+// ============================================================
 function updateStats(){
   const all=Object.values(data).flatMap(d=>d.trades||[]);
-  const pnl=all.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+  const totalPnl=all.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+  const hlPnl=all.filter(t=>t.source==='hyperliquid').reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
   const wins=all.filter(t=>t.result==='Win').length;
   const wr=all.length?Math.round(wins/all.length*100):null;
   document.getElementById('hs-trades').textContent=all.length;
   document.getElementById('hs-wr').textContent=wr!==null?wr+'%':'—';
   document.getElementById('hs-wr').style.color='#94a3b8';
-  document.getElementById('hs-pnl').textContent=pnlStr(pnl);
-  document.getElementById('hs-pnl').style.color=pnl>0?'#4ade80':pnl<0?'#f87171':'#64748b';
-  // Balance = baseline + net deposits/withdrawals (from HL ledger) + trade P&L
-  const balance=startingBalance+hlNetDeposits+pnl;
+  document.getElementById('hs-pnl').textContent=pnlStr(totalPnl);
+  document.getElementById('hs-pnl').style.color=totalPnl>0?'#4ade80':totalPnl<0?'#f87171':'#64748b';
+  // HL Balance — scoped to Hyperliquid only so it matches the HL app
+  const hlBalance=startingBalance+hlNetDeposits+hlPnl;
   const balEl=document.getElementById('hs-balance');
   if(balEl){
-    balEl.textContent=(balance<0?'-$':'$')+Math.abs(balance).toFixed(2);
-    // Color green if up from baseline+deposits, red if down, neutral if no baseline set yet
+    balEl.textContent=(hlBalance<0?'-$':'$')+Math.abs(hlBalance).toFixed(2);
     const reference=startingBalance+hlNetDeposits;
-    balEl.style.color=(startingBalance===0&&hlNetDeposits===0)?'#94a3b8':(balance>=reference?'#4ade80':'#f87171');
-    // Breakdown tooltip
+    balEl.style.color=(startingBalance===0&&hlNetDeposits===0&&hlPnl===0)?'#94a3b8':(hlBalance>=reference?'#4ade80':'#f87171');
     const parts=[];
     if(startingBalance)parts.push(`Baseline: $${startingBalance.toFixed(2)}`);
     if(hlNetDeposits)parts.push(`Net deposits: ${hlNetDeposits>=0?'+':''}$${hlNetDeposits.toFixed(2)}`);
-    if(pnl)parts.push(`Trade P&L: ${pnl>=0?'+':''}$${pnl.toFixed(2)}`);
+    if(hlPnl)parts.push(`HL trade P&L: ${hlPnl>=0?'+':''}$${hlPnl.toFixed(2)}`);
     const parentEl=balEl.closest('.hstat');
-    if(parentEl)parentEl.title=parts.length?parts.join('  •  ')+`  =  $${balance.toFixed(2)}`:'Click to set starting balance';
+    if(parentEl)parentEl.title=parts.length?parts.join('  •  ')+`  =  $${hlBalance.toFixed(2)}`:'Click to set HL starting balance';
   }
 }
 
-function editStartingBalance(){
-  const input=prompt('Baseline balance — your starting amount BEFORE auto-sync started (default 0). Deposits, withdrawals, and trade P&L from Hyperliquid will be added on top automatically.',startingBalance.toString());
+async function editStartingBalance(){
+  const input=prompt('HL baseline balance — your starting amount BEFORE auto-sync started (default 0). Deposits, withdrawals, and HL trade P&L will be added on top automatically.',startingBalance.toString());
   if(input===null)return;
   const val=parseFloat(input);
   if(isNaN(val)){alert('Please enter a valid number.');return;}
   startingBalance=val;
   safeSetItem('tj2_balance',String(startingBalance));
-  cloudSaveSettings();
+  await cloudSaveSettings();
   updateStats();
 }
 
@@ -1415,6 +1468,10 @@ function editStartingBalance(){
 // into closed round-trip trades, then inserts as draft journal
 // entries. Net P&L = closedPnl − fees (commission). The fees
 // stay attached for display next to the pair.
+//
+// hlNetDeposits is computed from userNonFundingLedgerUpdates and
+// persisted to Supabase via cloudSaveSettings() so it works
+// across devices.
 // ============================================================
 
 function renderHlStatus(){
@@ -1445,7 +1502,7 @@ function renderHlStatus(){
   }
 }
 
-function setHlWallet(){
+async function setHlWallet(){
   const cur=hlWallet||'';
   const input=prompt('Hyperliquid wallet address (0x...):',cur);
   if(input===null)return;
@@ -1456,7 +1513,7 @@ function setHlWallet(){
   }
   hlWallet=v;
   safeSetItem('tj2_hl_wallet',hlWallet);
-  cloudSaveSettings();
+  await cloudSaveSettings();
   renderHlStatus();
 }
 
@@ -1577,8 +1634,8 @@ function computeNetDeposits(ledgerUpdates){
   return parseFloat(net.toFixed(2));
 }
 
-// Fetch ledger and update hlNetDeposits in place. Safe to call independently
-// (used on init and inside syncHyperliquid).
+// Fetch ledger and update hlNetDeposits. Persists to Supabase so the value
+// follows you across devices. Pass silent=true to suppress the success toast.
 async function syncHyperliquidLedger(silent){
   if(!hlWallet)return;
   try{
@@ -1586,10 +1643,13 @@ async function syncHyperliquidLedger(silent){
     const ledger=await fetchHyperliquidLedger(hlWallet);
     hlNetDeposits=computeNetDeposits(ledger);
     safeSetItem('tj2_hl_netdeposits',String(hlNetDeposits));
+    await cloudSaveSettings();
     updateStats();
+    if(!silent)showSyncStatus('synced','✓ Ledger updated');
   }catch(err){
-    console.warn('Ledger sync failed (continuing):',err);
-    // Non-fatal — keep using cached value
+    console.warn('Ledger sync failed:',err);
+    // Surface briefly so silent failures don't hide stale balances
+    showSyncStatus('error','⚠ HL ledger sync failed');
   }
 }
 
@@ -1608,9 +1668,10 @@ async function syncHyperliquid(){
     // Always pull ledger too — deposits/withdrawals affect balance even when no new trades
     await syncHyperliquidLedger(true);
     if(!fills.length){
-      showSyncStatus('synced','✓ Updated (no fills)');
       hlLastSync=Date.now();
       safeSetItem('tj2_hl_lastsync',String(hlLastSync));
+      await cloudSaveSettings();
+      showSyncStatus('synced','✓ Updated (no fills)');
       renderHlStatus();
       return;
     }
@@ -1622,9 +1683,10 @@ async function syncHyperliquid(){
     }));
     const toAdd=grouped.filter(g=>!g.fillIds.some(id=>knownIds.has(String(id))));
     if(!toAdd.length){
-      showSyncStatus('synced','✓ Already up to date');
       hlLastSync=Date.now();
       safeSetItem('tj2_hl_lastsync',String(hlLastSync));
+      await cloudSaveSettings();
+      showSyncStatus('synced','✓ Already up to date');
       renderHlStatus();
       return;
     }
@@ -1661,6 +1723,7 @@ async function syncHyperliquid(){
     }
     hlLastSync=Date.now();
     safeSetItem('tj2_hl_lastsync',String(hlLastSync));
+    await cloudSaveSettings();
     saveData();
     renderCalendar();renderQuarterlyOverview();updateStats();renderHlStatus();
     showSyncStatus('synced',`✓ Added ${added} draft trade${added>1?'s':''}`);
