@@ -1635,7 +1635,12 @@ async function syncHyperliquid(){
   showSyncStatus('syncing','⟳ Pulling Hyperliquid fills…');
   try{
     const fills=await fetchHyperliquidFills(hlWallet);
-    if(!fills.length){
+    // Cutoff: only sync fills from May 15, 2026 onward. This was set after
+    // the user cleared historical data to start fresh. To change/remove the
+    // cutoff later, edit HL_SYNC_CUTOFF_MS below (or set it to 0 for no cutoff).
+    const HL_SYNC_CUTOFF_MS=new Date('2026-05-15T00:00:00').getTime();
+    const recentFills=HL_SYNC_CUTOFF_MS?fills.filter(f=>f.time>=HL_SYNC_CUTOFF_MS):fills;
+    if(!recentFills.length){
       hlLastSync=Date.now();
       safeSetItem('tj2_hl_lastsync',String(hlLastSync));
       await cloudSaveSettings();
@@ -1643,7 +1648,7 @@ async function syncHyperliquid(){
       renderHlStatus();
       return;
     }
-    const grouped=groupFillsIntoTrades(fills);
+    const grouped=groupFillsIntoTrades(recentFills);
     // Build a set of all known fill IDs from existing journal trades
     const knownIds=new Set();
     Object.values(data).forEach(d=>(d.trades||[]).forEach(t=>{
