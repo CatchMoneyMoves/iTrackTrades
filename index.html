@@ -270,8 +270,13 @@ a{color:#a78bfa;text-decoration:none}
 .edit-btn:hover{background:#3b1f6e}
 .lightbox{position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:500;display:none;align-items:center;justify-content:center}
 .lightbox.open{display:flex}
-.lightbox img{max-width:90vw;max-height:90vh;border-radius:8px}
-.lb-close{position:absolute;top:16px;right:20px;background:none;border:none;color:#fff;font-size:2rem;cursor:pointer}
+.lightbox img{max-width:88vw;max-height:88vh;border-radius:8px;cursor:default}
+.lb-close{position:absolute;top:16px;right:20px;background:none;border:none;color:#fff;font-size:2rem;cursor:pointer;z-index:2}
+.lb-nav{position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.25);color:#fff;border-radius:50%;width:52px;height:52px;font-size:1.6rem;cursor:pointer;display:none;align-items:center;justify-content:center;transition:background 0.15s;z-index:2;user-select:none}
+.lb-nav:hover{background:rgba(255,255,255,0.22)}
+.lb-prev{left:24px}
+.lb-next{right:24px}
+.lb-counter{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);color:#fff;font-size:0.78rem;background:rgba(0,0,0,0.6);padding:6px 14px;border-radius:14px;font-family:ui-monospace,monospace;display:none;letter-spacing:0.5px}
 .green{color:#4ade80}.red{color:#f87171}.purple{color:#a78bfa}.muted{color:#64748b}.neutral{color:#94a3b8}
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-track{background:#0d0d12}
@@ -422,9 +427,12 @@ a{color:#a78bfa;text-decoration:none}
   </div>
 </div>
 
-<div class="lightbox" id="lightbox" onclick="closeLightbox()">
-  <button class="lb-close" onclick="closeLightbox()">&#215;</button>
-  <img id="lb-img" src="" alt="">
+<div class="lightbox" id="lightbox" onclick="closeLightboxBg(event)">
+  <button class="lb-close" onclick="closeLightbox()" title="Close (Esc)">&#215;</button>
+  <button class="lb-nav lb-prev" id="lb-prev" onclick="event.stopPropagation();lbPrev()" title="Previous (←)">&#8249;</button>
+  <button class="lb-nav lb-next" id="lb-next" onclick="event.stopPropagation();lbNext()" title="Next (→)">&#8250;</button>
+  <img id="lb-img" src="" alt="" onclick="event.stopPropagation()">
+  <div class="lb-counter" id="lb-counter"></div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -787,7 +795,15 @@ async function init(){
   initSidebar();
   restoreSidebarWidth();
   renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();renderHlStatus();
-  document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModalDirect();closeDetailDirect();closeLightbox();}});
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Escape'){closeModalDirect();closeDetailDirect();closeLightbox();return;}
+    // Arrow-key gallery nav only when lightbox is open
+    const lb=document.getElementById('lightbox');
+    if(lb && lb.classList.contains('open')){
+      if(e.key==='ArrowLeft'){e.preventDefault();lbPrev();}
+      else if(e.key==='ArrowRight'){e.preventDefault();lbNext();}
+    }
+  });
 }
 
 function showPage(id,el){
@@ -1146,7 +1162,7 @@ function renderLoggedTrades(){
       </div>
       ${t.notes?`<div class="tc-notes-preview">${t.notes.length>120?t.notes.slice(0,120)+'…':t.notes}</div>`:''}
       ${t.tags&&t.tags.length?`<div class="tc-tags">${t.tags.map(g=>`<span class="tc-tag">${g}</span>`).join('')}</div>`:''}
-      ${t.screenshots&&t.screenshots.length?`<div class="tc-shots">${t.screenshots.map(s=>`<img src="${s}" onclick="event.stopPropagation();openLightbox('${s}')">`).join('')}</div>`:''}
+      ${t.screenshots&&t.screenshots.length?`<div class="tc-shots">${t.screenshots.map((s,si)=>`<img src="${s}" onclick="event.stopPropagation();openLightbox('${activeDate}',${i},${si})">`).join('')}</div>`:''}
     </div>`).join('');
 }
 
@@ -1176,7 +1192,7 @@ function openTradeDetail(dk,idx){
     </div>
     ${t.tags&&t.tags.length?`<div class="tc-tags" style="margin-bottom:11px">${t.tags.map(g=>`<span class="tc-tag">${g}</span>`).join('')}</div>`:''}
     ${t.notes?`<div style="background:#0d0d12;border-radius:0 8px 8px 0;border-left:2px solid #a78bfa;padding:11px;font-size:0.8rem;color:#94a3b8;line-height:1.6;margin-bottom:9px"><div style="font-size:0.6rem;color:#475569;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:5px">Notes</div>${t.notes}</div>`:''}
-    ${t.screenshots&&t.screenshots.length?`<div class="ss-grid" style="margin-bottom:9px">${t.screenshots.map(s=>`<div class="ss-thumb"><img src="${s}" onclick="openLightbox('${s}')" style="cursor:pointer"></div>`).join('')}</div>`:''}
+    ${t.screenshots&&t.screenshots.length?`<div class="ss-grid" style="margin-bottom:9px">${t.screenshots.map((s,si)=>`<div class="ss-thumb"><img src="${s}" onclick="openLightbox('${dk}',${idx},${si})" style="cursor:pointer"></div>`).join('')}</div>`:''}
     ${ytId?`<div style="margin-top:8px"><div style="font-size:0.6rem;color:#475569;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Video</div>${ytThumb(ytId,t.youtube)}</div>`:''}`;
   document.getElementById('detail-edit-btn').onclick=()=>startEdit(dk,idx);
   document.getElementById('detail-overlay').classList.add('open');
@@ -1404,7 +1420,64 @@ async function deleteTrade(idx){
   renderQuarterlyOverview();updateStats();
 }
 
-function openLightbox(src){document.getElementById('lb-img').src=src;document.getElementById('lightbox').classList.add('open');}
+// ============================================================
+// LIGHTBOX GALLERY
+// ============================================================
+// Click any screenshot to open the full-size viewer. If the trade has
+// multiple screenshots, use left/right arrows on screen or arrow keys
+// on keyboard to navigate. Esc closes. Clicking outside the image closes.
+// ============================================================
+let lbGallery=[];
+let lbIndex=0;
+
+function openLightbox(dk,tradeIdx,imgIdx){
+  // Support legacy single-src calls too (just pass a src string as first arg)
+  if(typeof dk==='string' && tradeIdx===undefined){
+    lbGallery=[dk];
+    lbIndex=0;
+  } else {
+    const trade=((data[dk]||{}).trades||[])[tradeIdx];
+    if(!trade||!trade.screenshots||!trade.screenshots.length)return;
+    lbGallery=trade.screenshots;
+    lbIndex=Math.max(0,Math.min(imgIdx||0,lbGallery.length-1));
+  }
+  showLbImage();
+  document.getElementById('lightbox').classList.add('open');
+}
+
+function showLbImage(){
+  if(!lbGallery.length)return;
+  document.getElementById('lb-img').src=lbGallery[lbIndex];
+  const prev=document.getElementById('lb-prev');
+  const next=document.getElementById('lb-next');
+  const counter=document.getElementById('lb-counter');
+  if(lbGallery.length>1){
+    if(prev)prev.style.display='flex';
+    if(next)next.style.display='flex';
+    if(counter){counter.style.display='block';counter.textContent=`${lbIndex+1} / ${lbGallery.length}`;}
+  } else {
+    if(prev)prev.style.display='none';
+    if(next)next.style.display='none';
+    if(counter)counter.style.display='none';
+  }
+}
+
+function lbPrev(){
+  if(lbGallery.length<2)return;
+  lbIndex=(lbIndex-1+lbGallery.length)%lbGallery.length;
+  showLbImage();
+}
+
+function lbNext(){
+  if(lbGallery.length<2)return;
+  lbIndex=(lbIndex+1)%lbGallery.length;
+  showLbImage();
+}
+
+// Only close when clicking the dark backdrop, not the image or buttons
+function closeLightboxBg(e){
+  if(e.target.id==='lightbox')closeLightbox();
+}
 function closeLightbox(){document.getElementById('lightbox').classList.remove('open');}
 
 // ============================================================
