@@ -1696,7 +1696,10 @@ async function syncHyperliquid(){
       const dk=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
       const netPnl=parseFloat((g.priceP_L-g.fees).toFixed(2));
       const trade={
-        id:'hl_'+g.fillIds[0],
+        // Use raw Hyperliquid fill ID (tid) as the trade ID — it's already a
+        // numeric string that fits in bigint. Previously prefixed with 'hl_'
+        // which caused Postgres to reject every HL trade insert as invalid bigint.
+        id:g.fillIds[0],
         pair:g.coin,
         timeframe:'',
         pnl:netPnl,
