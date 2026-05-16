@@ -78,6 +78,7 @@ a{color:#a78bfa;text-decoration:none}
 .tc-size{color:#94a3b8;font-family:ui-monospace,monospace;font-size:0.66rem}
 .tc-prices{color:#94a3b8;font-family:ui-monospace,monospace;font-size:0.66rem}
 .tc-prices .arrow{color:#475569;margin:0 3px}
+.tc-realized{font-family:ui-monospace,monospace;font-size:0.66rem;font-weight:700;padding:1px 5px;border-radius:4px;background:rgba(167,139,250,0.12)}
 .ql-item{display:flex;align-items:center;padding:5px 10px;margin:1px 5px;border-radius:7px;gap:4px;overflow:hidden;min-width:0;flex-shrink:0}
 .ql-item:hover{background:#1a1a28}
 .ql-item a{flex:1;color:#94a3b8;text-decoration:none;font-size:0.8rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
@@ -510,7 +511,8 @@ async function cloudPullAll(){
         is_draft:!!t.is_draft,
         size:t.size!=null?parseFloat(t.size):null,
         entry_price:t.entry_price!=null?parseFloat(t.entry_price):null,
-        exit_price:t.exit_price!=null?parseFloat(t.exit_price):null
+        exit_price:t.exit_price!=null?parseFloat(t.exit_price):null,
+        partial_exits:t.partial_exits||[]
       });
     });
     if(settings){
@@ -565,7 +567,8 @@ async function cloudUpsertTrade(dk,trade){
       is_draft:!!trade.is_draft,
       size:trade.size!=null?trade.size:null,
       entry_price:trade.entry_price!=null?trade.entry_price:null,
-      exit_price:trade.exit_price!=null?trade.exit_price:null
+      exit_price:trade.exit_price!=null?trade.exit_price:null,
+      partial_exits:trade.partial_exits||[]
     };
     const {error}=await supabaseClient.from('trades').upsert(row);
     if(error)throw error;
@@ -1144,7 +1147,14 @@ function renderLoggedTrades(){
     wrap.innerHTML=chip+`<div style="color:#475569;font-size:0.78rem;padding:14px;text-align:center">No ${activePairFilter} trades logged on this day.</div>`;
     return;
   }
-  wrap.innerHTML=chip+filtered.map(({trade:t,idx:i})=>`
+  wrap.innerHTML=chip+filtered.map(({trade:t,idx:i})=>{
+    // Realized so far — for open trades that have taken partial closes
+    let realizedSoFar='';
+    if(t.result==='Open' && (t.partial_exits||[]).length){
+      const realized=t.partial_exits.reduce((s,p)=>s+(parseFloat(p.pnl)||0)-(parseFloat(p.fee)||0),0);
+      realizedSoFar=`<span class="tc-realized ${realized>=0?'green':'red'}">Realized: ${pnlStr(realized)}</span>`;
+    }
+    return `
     <div class="trade-card" onclick="openTradeDetail('${activeDate}',${i})">
       <button class="tc-del" onclick="event.stopPropagation();deleteTrade(${i})">🗑</button>
       <div class="trade-card-header">
@@ -1153,7 +1163,8 @@ function renderLoggedTrades(){
         ${t.fees?`<span class="tc-fees">−$${parseFloat(t.fees).toFixed(2)} fees</span>`:''}
         ${t.is_draft?`<span class="badge-draft">DRAFT</span>`:''}
         ${t.result==='Open'?`<span class="badge-open">● OPEN</span>`:(t.result?`<span class="badge-${t.result==='Win'?'win':t.result==='Loss'?'loss':'be'}">${t.result}</span>`:'')}
-        <span class="tc-pnl ${pnlClass(t.pnl)}">${pnlStr(t.pnl)}</span>
+        ${realizedSoFar}
+        <span class="tc-pnl ${pnlClass(t.pnl)}">${t.result==='Open'?'':pnlStr(t.pnl)}</span>
       </div>
       <div class="tc-meta">
         ${t.timeframe?`<span>${t.timeframe}</span>`:''}
@@ -1165,7 +1176,8 @@ function renderLoggedTrades(){
       ${t.notes?`<div class="tc-notes-preview">${t.notes.length>120?t.notes.slice(0,120)+'…':t.notes}</div>`:''}
       ${t.tags&&t.tags.length?`<div class="tc-tags">${t.tags.map(g=>`<span class="tc-tag">${g}</span>`).join('')}</div>`:''}
       ${t.screenshots&&t.screenshots.length?`<div class="tc-shots">${t.screenshots.map((s,si)=>`<img src="${s}" onclick="event.stopPropagation();openLightbox('${activeDate}',${i},${si})">`).join('')}</div>`:''}
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function clearPairFilter(){
@@ -1178,15 +1190,46 @@ function openTradeDetail(dk,idx){
   if(!t)return;
   editingDk=dk;editingIdx=idx;
   const ytId=getYTId(t.youtube||'');
+
+  // Build exit display rows. If trade has partial_exits, show each numbered.
+  // If single close (no partials), just show "Exit Price". For open trades with
+  // partials, show "1st Exit", "2nd Exit", etc. (no "Final Exit" yet). For closed
+  // trades with multiple partials, last one is labeled "Final Exit".
+  let exitsHtml='';
+  let realizedHtml='';
+  const isOpen=t.result==='Open';
+  const partials=t.partial_exits||[];
+  if(partials.length>1){
+    // Multiple exits — show each numbered
+    const ordinal=(n)=>{
+      const labels=['1st','2nd','3rd','4th','5th','6th','7th','8th','9th','10th'];
+      return labels[n]||(n+1+'th');
+    };
+    exitsHtml=partials.map((p,i)=>{
+      const isLast=(i===partials.length-1);
+      const lbl=(!isOpen && isLast)?'Final Exit':`${ordinal(i)} Exit`;
+      return `<div class="detail-item"><div class="detail-lbl">${lbl}</div><div class="detail-val" style="font-family:ui-monospace,monospace">$${fmtPrice(p.price)} <span style="color:#64748b;font-size:0.7rem">· ${fmtSize(p.size)}</span></div></div>`;
+    }).join('');
+    // Realized so far for open trades
+    if(isOpen){
+      const realized=partials.reduce((s,p)=>s+(parseFloat(p.pnl)||0)-(parseFloat(p.fee)||0),0);
+      realizedHtml=`<div class="detail-item"><div class="detail-lbl">Realized so far</div><div class="detail-val ${realized>=0?'green':'red'}">${pnlStr(realized)}</div></div>`;
+    }
+  } else if(t.exit_price){
+    // Single close — show standard exit price
+    exitsHtml=`<div class="detail-item"><div class="detail-lbl">Exit Price</div><div class="detail-val" style="font-family:ui-monospace,monospace">$${fmtPrice(t.exit_price)}</div></div>`;
+  }
+
   document.getElementById('detail-title').textContent=(t.pair||'Trade')+' — '+dk;
   document.getElementById('detail-content').innerHTML=`
     <div class="detail-grid">
       <div class="detail-item"><div class="detail-lbl">Result</div><div class="detail-val ${t.result==='Win'?'green':t.result==='Loss'?'red':'purple'}">${t.result||'—'}</div></div>
-      <div class="detail-item"><div class="detail-lbl">Net P&L</div><div class="detail-val ${pnlClass(t.pnl)}">${pnlStr(t.pnl)}</div></div>
+      <div class="detail-item"><div class="detail-lbl">Net P&L</div><div class="detail-val ${pnlClass(t.pnl)}">${isOpen?'—':pnlStr(t.pnl)}</div></div>
+      ${realizedHtml}
       ${t.fees?`<div class="detail-item"><div class="detail-lbl">Fees / Commission</div><div class="detail-val" style="color:#fbbf24">−$${parseFloat(t.fees).toFixed(2)}</div></div>`:''}
       ${t.size?`<div class="detail-item"><div class="detail-lbl">Size</div><div class="detail-val" style="font-family:ui-monospace,monospace">${fmtSize(t.size)} ${t.pair||''}</div></div>`:''}
       ${t.entry_price?`<div class="detail-item"><div class="detail-lbl">Entry Price</div><div class="detail-val" style="font-family:ui-monospace,monospace">$${fmtPrice(t.entry_price)}</div></div>`:''}
-      ${t.exit_price?`<div class="detail-item"><div class="detail-lbl">Exit Price</div><div class="detail-val" style="font-family:ui-monospace,monospace">$${fmtPrice(t.exit_price)}</div></div>`:''}
+      ${exitsHtml}
       <div class="detail-item"><div class="detail-lbl">Timeframe</div><div class="detail-val">${t.timeframe||'—'}</div></div>
       <div class="detail-item"><div class="detail-lbl">Bias</div><div class="detail-val">${t.bias||'—'}</div></div>
       <div class="detail-item"><div class="detail-lbl">Setup</div><div class="detail-val">${t.setup||'—'}</div></div>
@@ -1680,7 +1723,8 @@ function groupFillsIntoTrades(fills,openPositions){
           openSize:sz,
           openNotional:sz*px,
           closeSize:0,
-          closeNotional:0
+          closeNotional:0,
+          partial_exits:[]
         };
       } else {
         trade.fees+=fee;
@@ -1694,6 +1738,14 @@ function groupFillsIntoTrades(fills,openPositions){
         } else {
           trade.closeSize+=sz;
           trade.closeNotional+=sz*px;
+          // Each closing fill is a partial exit
+          trade.partial_exits.push({
+            price:px,
+            size:sz,
+            time:f.time,
+            pnl:parseFloat(cp.toFixed(2)),
+            fee:parseFloat(fee.toFixed(4))
+          });
         }
       }
       if(Math.abs(endPos)<1e-9){
@@ -1797,6 +1849,7 @@ async function syncHyperliquid(){
         t.entry_price=parseFloat(g.entryPrice.toFixed(8));
         t.exit_price=parseFloat(g.exitPrice.toFixed(8));
         t.hl_fill_ids=g.fillIds;
+        t.partial_exits=g.partial_exits||[];
         t.source='hyperliquid';
         // Move date key if the close happened on a different day than the open
         if(existing.dk!==dk){
@@ -1825,7 +1878,8 @@ async function syncHyperliquid(){
           is_draft:true,
           size:parseFloat(g.size.toFixed(8)),
           entry_price:parseFloat(g.entryPrice.toFixed(8)),
-          exit_price:parseFloat(g.exitPrice.toFixed(8))
+          exit_price:parseFloat(g.exitPrice.toFixed(8)),
+          partial_exits:g.partial_exits||[]
         };
         if(!data[dk])data[dk]={trades:[]};
         data[dk].trades.push(trade);
@@ -1849,6 +1903,7 @@ async function syncHyperliquid(){
         t.entry_price=parseFloat(g.entryPrice.toFixed(8));
         t.fees=parseFloat(g.fees.toFixed(2));
         t.hl_fill_ids=g.fillIds;
+        t.partial_exits=g.partial_exits||[];
         t.source='hyperliquid';
         // Don't touch pnl/exit_price/result while open — they belong to the closed trade
         await cloudUpsertTrade(existing.dk,t);
@@ -1871,7 +1926,8 @@ async function syncHyperliquid(){
           is_draft:true,
           size:parseFloat(g.size.toFixed(8)),
           entry_price:parseFloat(g.entryPrice.toFixed(8)),
-          exit_price:null
+          exit_price:null,
+          partial_exits:g.partial_exits||[]
         };
         if(!data[dk])data[dk]={trades:[]};
         data[dk].trades.push(trade);
