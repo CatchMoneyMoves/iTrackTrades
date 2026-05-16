@@ -71,6 +71,8 @@ a{color:#a78bfa;text-decoration:none}
 .hl-wallet-row:hover .hl-edit{opacity:1}
 .hl-last-sync{padding:2px 12px 6px;font-size:0.62rem;color:#475569}
 .badge-draft{font-size:0.6rem;padding:2px 6px;border-radius:10px;font-weight:700;background:#0e1f33;color:#06b6d4;border:1px solid #0e7490;letter-spacing:0.5px}
+.badge-open{font-size:0.6rem;padding:2px 6px;border-radius:10px;font-weight:700;background:#3b1f6e;color:#a78bfa;border:1px solid #a78bfa;letter-spacing:0.5px;animation:openPulse 2s ease-in-out infinite}
+@keyframes openPulse{0%,100%{opacity:1}50%{opacity:0.65}}
 .tc-fees{color:#fbbf24;font-family:ui-monospace,monospace;font-size:0.66rem}
 .tc-source-icon{color:#06b6d4;font-size:0.85rem;cursor:help}
 .tc-size{color:#94a3b8;font-family:ui-monospace,monospace;font-size:0.66rem}
@@ -1150,7 +1152,7 @@ function renderLoggedTrades(){
         <span class="tc-pair">${t.pair||'—'}</span>
         ${t.fees?`<span class="tc-fees">−$${parseFloat(t.fees).toFixed(2)} fees</span>`:''}
         ${t.is_draft?`<span class="badge-draft">DRAFT</span>`:''}
-        ${t.result?`<span class="badge-${t.result==='Win'?'win':t.result==='Loss'?'loss':'be'}">${t.result}</span>`:''}
+        ${t.result==='Open'?`<span class="badge-open">● OPEN</span>`:(t.result?`<span class="badge-${t.result==='Win'?'win':t.result==='Loss'?'loss':'be'}">${t.result}</span>`:'')}
         <span class="tc-pnl ${pnlClass(t.pnl)}">${pnlStr(t.pnl)}</span>
       </div>
       <div class="tc-meta">
@@ -1619,21 +1621,40 @@ async function fetchHyperliquidFills(wallet){
   return fills;
 }
 
-// Walk fills per coin, group into closed round-trip trades using running position.
+// Get current open positions. Returns dict { COIN: signedSize }
+async function fetchHyperliquidState(wallet){
+  const r=await fetch('https://api.hyperliquid.xyz/info',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({type:'clearinghouseState',user:wallet})
+  });
+  if(!r.ok)throw new Error('Hyperliquid state API returned '+r.status);
+  const state=await r.json();
+  const positions={};
+  (state.assetPositions||[]).forEach(ap=>{
+    const p=ap.position;
+    if(!p||!p.coin)return;
+    const sz=parseFloat(p.szi)||0;
+    if(Math.abs(sz)>1e-9)positions[p.coin]=sz;
+  });
+  return positions;
+}
+
+// Walk fills per coin, group into round-trip trades using running position.
 // A trade starts on the first non-flat fill and ends when running position returns to ~0.
-// Open positions (not yet closed) are skipped — they'll be captured next sync.
-// Computes:
-//   - size: total position size opened (= total closed)
-//   - entryPrice: VWAP of opening fills (fills that grew the position)
-//   - exitPrice: VWAP of closing fills (fills that reduced the position)
-function groupFillsIntoTrades(fills){
+// If a coin has fills that NEVER close (running position non-zero at end) AND that coin
+// appears in current open positions, the leftover trade is returned as OPEN.
+// Returns: { closed: [Trade], open: [Trade] }
+function groupFillsIntoTrades(fills,openPositions){
+  openPositions=openPositions||{};
   const byCoin={};
   fills.forEach(f=>{
     const c=f.coin;
     if(!byCoin[c])byCoin[c]=[];
     byCoin[c].push(f);
   });
-  const trades=[];
+  const closed=[];
+  const open=[];
   for(const coin in byCoin){
     const sorted=byCoin[coin].slice().sort((a,b)=>a.time-b.time);
     let trade=null;
@@ -1646,7 +1667,6 @@ function groupFillsIntoTrades(fills){
       const signedDelta=(f.side==='B'?sz:-sz);
       const endPos=startPos+signedDelta;
       if(!trade){
-        // First fill: opens the position
         const dirSign=signedDelta>0?1:-1;
         trade={
           coin,
@@ -1657,18 +1677,16 @@ function groupFillsIntoTrades(fills){
           fillIds:[String(f.tid)],
           entryTime:f.time,
           exitTime:f.time,
-          openSize:sz,        // total notional that got opened
-          openNotional:sz*px, // for VWAP entry
-          closeSize:0,        // total notional that got closed
-          closeNotional:0     // for VWAP exit
+          openSize:sz,
+          openNotional:sz*px,
+          closeSize:0,
+          closeNotional:0
         };
       } else {
         trade.fees+=fee;
         trade.priceP_L+=cp;
         trade.fillIds.push(String(f.tid));
         trade.exitTime=f.time;
-        // Determine if this fill adds to or reduces the position
-        // (sign of fill matches trade direction → adding; opposite → closing)
         const fillDirMatchesTrade=(trade.dirSign>0 && signedDelta>0)||(trade.dirSign<0 && signedDelta<0);
         if(fillDirMatchesTrade){
           trade.openSize+=sz;
@@ -1678,19 +1696,41 @@ function groupFillsIntoTrades(fills){
           trade.closeNotional+=sz*px;
         }
       }
-      // Trade closes when running position returns to 0 (small float epsilon)
       if(Math.abs(endPos)<1e-9){
-        // Finalize VWAP prices
         trade.entryPrice=trade.openSize>0?trade.openNotional/trade.openSize:0;
         trade.exitPrice=trade.closeSize>0?trade.closeNotional/trade.closeSize:0;
         trade.size=trade.openSize;
-        trades.push(trade);
+        closed.push(trade);
         trade=null;
       }
     }
-    // Open trade left over → not yet closed, skip
+    // Leftover trade → only count it as OPEN if state confirms there's a live position on this coin
+    if(trade && openPositions[coin]!==undefined){
+      trade.entryPrice=trade.openSize>0?trade.openNotional/trade.openSize:0;
+      trade.exitPrice=0;
+      trade.size=trade.openSize-trade.closeSize;  // net current size
+      trade.isOpen=true;
+      open.push(trade);
+    }
   }
-  return trades;
+  return {closed,open};
+}
+
+// Find an existing journal entry that contains ANY of these HL fill IDs.
+// Used to decide whether to UPDATE an existing draft or CREATE a new entry.
+function findExistingTradeByFillIds(fillIds){
+  const idSet=new Set(fillIds.map(String));
+  for(const dk in data){
+    const trades=(data[dk]||{}).trades||[];
+    for(let i=0;i<trades.length;i++){
+      const t=trades[i];
+      if(!t.hl_fill_ids)continue;
+      for(const id of t.hl_fill_ids){
+        if(idSet.has(String(id)))return {dk,idx:i,trade:t};
+      }
+    }
+  }
+  return null;
 }
 
 // Fetch and trade-grouping helpers above. No ledger fetching anymore —
@@ -1705,15 +1745,28 @@ async function syncHyperliquid(){
   const btn=document.getElementById('hl-sync-btn');
   hlSyncing=true;
   if(btn)btn.disabled=true;
-  showSyncStatus('syncing','⟳ Pulling Hyperliquid fills…');
+  showSyncStatus('syncing','⟳ Pulling Hyperliquid…');
   try{
-    const fills=await fetchHyperliquidFills(hlWallet);
+    // Pull both fills (closed trade activity) and state (currently open positions) in parallel
+    const [fills,openPositions]=await Promise.all([
+      fetchHyperliquidFills(hlWallet),
+      fetchHyperliquidState(hlWallet)
+    ]);
     // Cutoff: only sync fills from May 15, 2026 onward. This was set after
-    // the user cleared historical data to start fresh. To change/remove the
-    // cutoff later, edit HL_SYNC_CUTOFF_MS below (or set it to 0 for no cutoff).
+    // the user cleared historical data to start fresh.
     const HL_SYNC_CUTOFF_MS=new Date('2026-05-15T00:00:00').getTime();
     const recentFills=HL_SYNC_CUTOFF_MS?fills.filter(f=>f.time>=HL_SYNC_CUTOFF_MS):fills;
-    if(!recentFills.length){
+
+    // Always also include earlier fills for any currently-open position
+    // (so we can compute its entry correctly even if the open started before cutoff).
+    let workingFills=recentFills;
+    if(Object.keys(openPositions).length){
+      const openCoins=new Set(Object.keys(openPositions));
+      const earlier=fills.filter(f=>f.time<HL_SYNC_CUTOFF_MS && openCoins.has(f.coin));
+      workingFills=earlier.concat(recentFills);
+    }
+
+    if(!workingFills.length){
       hlLastSync=Date.now();
       safeSetItem('tj2_hl_lastsync',String(hlLastSync));
       await cloudSaveSettings();
@@ -1721,61 +1774,125 @@ async function syncHyperliquid(){
       renderHlStatus();
       return;
     }
-    const grouped=groupFillsIntoTrades(recentFills);
-    // Build a set of all known fill IDs from existing journal trades
-    const knownIds=new Set();
-    Object.values(data).forEach(d=>(d.trades||[]).forEach(t=>{
-      (t.hl_fill_ids||[]).forEach(id=>knownIds.add(String(id)));
-    }));
-    const toAdd=grouped.filter(g=>!g.fillIds.some(id=>knownIds.has(String(id))));
-    if(!toAdd.length){
-      hlLastSync=Date.now();
-      safeSetItem('tj2_hl_lastsync',String(hlLastSync));
-      await cloudSaveSettings();
-      showSyncStatus('synced','✓ Already up to date');
-      renderHlStatus();
-      return;
-    }
-    let added=0;
-    for(const g of toAdd){
+
+    const {closed,open}=groupFillsIntoTrades(workingFills,openPositions);
+
+    let createdClosed=0, updatedClosed=0;
+    let createdOpen=0, updatedOpen=0;
+
+    // ---- Process CLOSED trades ----
+    for(const g of closed){
+      const existing=findExistingTradeByFillIds(g.fillIds);
       const dt=new Date(g.exitTime);
       const dk=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
       const netPnl=parseFloat((g.priceP_L-g.fees).toFixed(2));
-      const trade={
-        // Use raw Hyperliquid fill ID (tid) as the trade ID — it's already a
-        // numeric string that fits in bigint. Previously prefixed with 'hl_'
-        // which caused Postgres to reject every HL trade insert as invalid bigint.
-        id:g.fillIds[0],
-        pair:g.coin,
-        timeframe:'',
-        pnl:netPnl,
-        result:netPnl>0?'Win':netPnl<0?'Loss':'Breakeven',
-        bias:g.direction==='long'?'Bullish':'Bearish',
-        setup:'',
-        plan:'',
-        notes:`Auto-synced from Hyperliquid · ${g.direction.toUpperCase()} · Entry ${new Date(g.entryTime).toLocaleString()} · Exit ${new Date(g.exitTime).toLocaleString()}`,
-        tags:[],
-        screenshots:[],
-        youtube:'',
-        source:'hyperliquid',
-        fees:parseFloat(g.fees.toFixed(2)),
-        hl_fill_ids:g.fillIds,
-        is_draft:true,
-        size:parseFloat(g.size.toFixed(8)),
-        entry_price:parseFloat(g.entryPrice.toFixed(8)),
-        exit_price:parseFloat(g.exitPrice.toFixed(8))
-      };
-      if(!data[dk])data[dk]={trades:[]};
-      data[dk].trades.push(trade);
-      await cloudUpsertTrade(dk,trade);
-      added++;
+
+      if(existing){
+        // UPDATE existing entry — preserve user-added fields (screenshots, tags, notes, setup, plan, timeframe, youtube)
+        const t=existing.trade;
+        t.pnl=netPnl;
+        t.result=netPnl>0?'Win':netPnl<0?'Loss':'Breakeven';
+        t.fees=parseFloat(g.fees.toFixed(2));
+        t.size=parseFloat(g.size.toFixed(8));
+        t.entry_price=parseFloat(g.entryPrice.toFixed(8));
+        t.exit_price=parseFloat(g.exitPrice.toFixed(8));
+        t.hl_fill_ids=g.fillIds;
+        t.source='hyperliquid';
+        // Move date key if the close happened on a different day than the open
+        if(existing.dk!==dk){
+          data[existing.dk].trades.splice(existing.idx,1);
+          if(!data[existing.dk].trades.length)delete data[existing.dk];
+          if(!data[dk])data[dk]={trades:[]};
+          data[dk].trades.push(t);
+        }
+        await cloudUpsertTrade(dk,t);
+        updatedClosed++;
+      } else {
+        // CREATE new closed-trade entry
+        const trade={
+          id:g.fillIds[0],
+          pair:g.coin,
+          timeframe:'',
+          pnl:netPnl,
+          result:netPnl>0?'Win':netPnl<0?'Loss':'Breakeven',
+          bias:g.direction==='long'?'Bullish':'Bearish',
+          setup:'',plan:'',
+          notes:`Auto-synced from Hyperliquid · ${g.direction.toUpperCase()} · Entry ${new Date(g.entryTime).toLocaleString()} · Exit ${new Date(g.exitTime).toLocaleString()}`,
+          tags:[],screenshots:[],youtube:'',
+          source:'hyperliquid',
+          fees:parseFloat(g.fees.toFixed(2)),
+          hl_fill_ids:g.fillIds,
+          is_draft:true,
+          size:parseFloat(g.size.toFixed(8)),
+          entry_price:parseFloat(g.entryPrice.toFixed(8)),
+          exit_price:parseFloat(g.exitPrice.toFixed(8))
+        };
+        if(!data[dk])data[dk]={trades:[]};
+        data[dk].trades.push(trade);
+        await cloudUpsertTrade(dk,trade);
+        createdClosed++;
+      }
     }
+
+    // ---- Process OPEN trades ----
+    for(const g of open){
+      const existing=findExistingTradeByFillIds(g.fillIds);
+      const dt=new Date(g.entryTime);
+      const dk=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+      // For open trades, P&L is unknown yet — use realized closedPnl (e.g. from partial closes) but mark as open
+      const partialPnl=parseFloat((g.priceP_L-g.fees).toFixed(2));
+
+      if(existing){
+        // UPDATE — position size or partial-close info may have changed
+        const t=existing.trade;
+        t.size=parseFloat(g.size.toFixed(8));
+        t.entry_price=parseFloat(g.entryPrice.toFixed(8));
+        t.fees=parseFloat(g.fees.toFixed(2));
+        t.hl_fill_ids=g.fillIds;
+        t.source='hyperliquid';
+        // Don't touch pnl/exit_price/result while open — they belong to the closed trade
+        await cloudUpsertTrade(existing.dk,t);
+        updatedOpen++;
+      } else {
+        // CREATE new draft entry for the open position
+        const trade={
+          id:g.fillIds[0],
+          pair:g.coin,
+          timeframe:'',
+          pnl:0,
+          result:'Open',
+          bias:g.direction==='long'?'Bullish':'Bearish',
+          setup:'',plan:'',
+          notes:`Position OPEN — ${g.direction.toUpperCase()} ${g.coin} · Entry ${new Date(g.entryTime).toLocaleString()} · Sync after close for final numbers.`,
+          tags:[],screenshots:[],youtube:'',
+          source:'hyperliquid',
+          fees:parseFloat(g.fees.toFixed(2)),
+          hl_fill_ids:g.fillIds,
+          is_draft:true,
+          size:parseFloat(g.size.toFixed(8)),
+          entry_price:parseFloat(g.entryPrice.toFixed(8)),
+          exit_price:null
+        };
+        if(!data[dk])data[dk]={trades:[]};
+        data[dk].trades.push(trade);
+        await cloudUpsertTrade(dk,trade);
+        createdOpen++;
+      }
+    }
+
     hlLastSync=Date.now();
     safeSetItem('tj2_hl_lastsync',String(hlLastSync));
     await cloudSaveSettings();
     saveData();
     renderCalendar();renderQuarterlyOverview();updateStats();renderHlStatus();
-    showSyncStatus('synced',`✓ Added ${added} draft trade${added>1?'s':''}`);
+
+    // Status message
+    const parts=[];
+    if(createdOpen)parts.push(`${createdOpen} new open`);
+    if(updatedOpen)parts.push(`${updatedOpen} open updated`);
+    if(createdClosed)parts.push(`${createdClosed} new closed`);
+    if(updatedClosed)parts.push(`${updatedClosed} closed updated`);
+    showSyncStatus('synced',parts.length?`✓ ${parts.join(', ')}`:'✓ Already up to date');
   }catch(err){
     console.error('Hyperliquid sync failed:',err);
     showSyncStatus('error','⚠ Sync failed');
