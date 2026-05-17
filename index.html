@@ -1799,24 +1799,13 @@ async function syncHyperliquid(){
   if(btn)btn.disabled=true;
   showSyncStatus('syncing','⟳ Pulling Hyperliquid…');
   try{
-    // Pull both fills (closed trade activity) and state (currently open positions) in parallel
-    const [fills,openPositions]=await Promise.all([
-      fetchHyperliquidFills(hlWallet),
-      fetchHyperliquidState(hlWallet)
-    ]);
-    // Cutoff: only sync fills from May 15, 2026 onward. This was set after
-    // the user cleared historical data to start fresh.
+    const fills=await fetchHyperliquidFills(hlWallet);
+    const openPositions=await fetchHyperliquidState(hlWallet);
+    // Cutoff: only sync fills from May 15, 2026 onward. STRICT — never pull
+    // earlier fills, even for currently-open positions. If a position was
+    // opened before the cutoff, it won't sync; user can log manually.
     const HL_SYNC_CUTOFF_MS=new Date('2026-05-15T00:00:00').getTime();
-    const recentFills=HL_SYNC_CUTOFF_MS?fills.filter(f=>f.time>=HL_SYNC_CUTOFF_MS):fills;
-
-    // Always also include earlier fills for any currently-open position
-    // (so we can compute its entry correctly even if the open started before cutoff).
-    let workingFills=recentFills;
-    if(Object.keys(openPositions).length){
-      const openCoins=new Set(Object.keys(openPositions));
-      const earlier=fills.filter(f=>f.time<HL_SYNC_CUTOFF_MS && openCoins.has(f.coin));
-      workingFills=earlier.concat(recentFills);
-    }
+    const workingFills=HL_SYNC_CUTOFF_MS?fills.filter(f=>f.time>=HL_SYNC_CUTOFF_MS):fills;
 
     if(!workingFills.length){
       hlLastSync=Date.now();
