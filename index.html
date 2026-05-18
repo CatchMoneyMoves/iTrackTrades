@@ -465,6 +465,7 @@ let startingBalance=0;
 let hlWallet='';
 let hlLastSync=0;
 let hlSyncing=false;
+const HL_DEXES=['','xyz'];  
 
 const SETUPS=['Break & Retest','Candle Breakout','Bounce','N/A'];
 const TAGS=[
@@ -1772,27 +1773,27 @@ async function setHlWallet(){
   renderHlStatus();
 }
 
-async function fetchHyperliquidFills(wallet){
+// Unified info request — set dex='' for main perps, dex='xyz' for HIP-3 markets like Gold.
+async function hlInfoRequest(payload,dex){
+  if(dex)payload.dex=dex;
   const r=await fetch('https://api.hyperliquid.xyz/info',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({type:'userFills',user:wallet,aggregateByTime:true})
+    body:JSON.stringify(payload)
   });
   if(!r.ok)throw new Error('Hyperliquid API returned '+r.status);
-  const fills=await r.json();
+  return r.json();
+}
+
+async function fetchHyperliquidFills(wallet,dex){
+  const fills=await hlInfoRequest({type:'userFills',user:wallet,aggregateByTime:true},dex);
   if(!Array.isArray(fills))throw new Error('Unexpected response shape from Hyperliquid');
   return fills;
 }
 
-// Get current open positions. Returns dict { COIN: signedSize }
-async function fetchHyperliquidState(wallet){
-  const r=await fetch('https://api.hyperliquid.xyz/info',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({type:'clearinghouseState',user:wallet})
-  });
-  if(!r.ok)throw new Error('Hyperliquid state API returned '+r.status);
-  const state=await r.json();
+// Get current open positions for a given dex. Returns dict { COIN: signedSize }
+async function fetchHyperliquidState(wallet,dex){
+  const state=await hlInfoRequest({type:'clearinghouseState',user:wallet},dex);
   const positions={};
   (state.assetPositions||[]).forEach(ap=>{
     const p=ap.position;
@@ -1919,8 +1920,20 @@ async function syncHyperliquid(){
   if(btn)btn.disabled=true;
   showSyncStatus('syncing','⟳ Pulling Hyperliquid…');
   try{
-    const fills=await fetchHyperliquidFills(hlWallet);
-    const openPositions=await fetchHyperliquidState(hlWallet);
+    // Loop over all configured DEXes so HIP-3 markets (Gold on 'xyz') get included.
+    let fills=[];
+    let openPositions={};
+    for(const dex of HL_DEXES){
+      try{
+        const dexFills=await fetchHyperliquidFills(hlWallet,dex);
+        fills=fills.concat(dexFills);
+        const dexPositions=await fetchHyperliquidState(hlWallet,dex);
+        Object.assign(openPositions,dexPositions);
+        console.log(`HL sync · dex='${dex||'main'}' · ${dexFills.length} fills · ${Object.keys(dexPositions).length} open positions`);
+      }catch(err){
+        console.warn(`HL fetch failed for dex='${dex||'main'}':`,err);
+      }
+    }
     // Cutoff: only sync fills from May 15, 2026 onward. STRICT — never pull
     // earlier fills, even for currently-open positions. If a position was
     // opened before the cutoff, it won't sync; user can log manually.
