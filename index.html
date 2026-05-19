@@ -295,7 +295,11 @@ a{color:#a78bfa;text-decoration:none}
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-track{background:#0d0d12}
 ::-webkit-scrollbar-thumb{background:#2d2d3d;border-radius:3px}
-</style>
+@media (max-width:768px){
+  .page{overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .cal-body{flex:none}
+  .cal-grid{grid-auto-rows:minmax(70px,auto)}
+}</style>
 </head>
 <body>
 <div id="app-loading">Loading...</div>
