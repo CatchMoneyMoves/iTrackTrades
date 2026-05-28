@@ -470,6 +470,9 @@ let hlWallet='';
 let hlLastSync=0;
 let hlSyncing=false;
 const HL_DEXES=['','xyz'];
+// Protect older finalized Hyperliquid trades from being recalculated by future syncs.
+// May 15-20 numbers are already confirmed manually. Sync may still create/update May 27 and future trades.
+const HL_WRITE_LOCK_BEFORE_DK='2026-05-27';
 
 const SETUPS=['Break & Retest','Candle Breakout','Bounce','N/A'];
 const TAGS=[
@@ -1722,20 +1725,38 @@ function dateKeyFromMs(ms){
   return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
 }
 
+function isHlWriteLockedDk(dk){
+  return dk && dk < HL_WRITE_LOCK_BEFORE_DK;
+}
+
 function dedupeHyperliquidFills(fills){
   const seen=new Set();
   const out=[];
   (fills||[]).forEach(f=>{
     if(!f||!f.coin||f.time==null)return;
+    // Ignore internal/system assets like @156 that can appear in some HL responses.
+    if(String(f.coin).startsWith('@'))return;
     const tid=f.tid!=null?String(f.tid):'';
     const sz=parseFloat(f.sz)||0;
     const px=parseFloat(f.px)||0;
     if(!f.side||!sz||!px)return;
     // tid 0/non-real ids can appear from non-trade/system rows and should not create journal trades.
     if(!tid||tid==='0'||tid==='undefined'||tid==='null')return;
-    const key='tid:'+tid;
-    if(seen.has(key))return;
-    seen.add(key);
+
+    // First dedupe by exact tid when possible.
+    const tidKey='tid:'+tid;
+    if(seen.has(tidKey))return;
+
+    // Hyperliquid main + HIP-3 dex calls can return the same economic fill with different tids.
+    // Dedupe by the full economic fingerprint too, otherwise P&L and fees get doubled.
+    const econKey=[
+      'econ', f.coin, f.side, String(f.time),
+      String(f.px), String(f.sz), String(f.closedPnl||0), String(f.fee||0), String(f.startPosition||0)
+    ].join('|');
+    if(seen.has(econKey))return;
+
+    seen.add(tidKey);
+    seen.add(econKey);
     out.push(f);
   });
   return out.sort((a,b)=>(a.time||0)-(b.time||0));
@@ -1963,6 +1984,11 @@ async function syncHyperliquid(){
       if(g.exitTime<actionCutoffMs)continue;
 
       const dk=dateKeyFromMs(g.exitTime);
+      if(isHlWriteLockedDk(dk)){
+        skippedClosed++;
+        console.log('HL sync protected historical closed trade from recalculation',g.coin,dk,g);
+        continue;
+      }
       const existing=findExistingHlTradeForGroup(g,dk,true);
       const netPnl=parseFloat((g.priceP_L-g.fees).toFixed(2));
 
@@ -2025,6 +2051,11 @@ async function syncHyperliquid(){
       const isActionable=(g.entryTime>=actionCutoffMs)||!!existing;
 
       if(!isActionable)continue;
+      if(isHlWriteLockedDk(dk) && !existing){
+        skippedOpen++;
+        console.log('HL sync protected historical open trade from creation',g.coin,dk,g);
+        continue;
+      }
 
       if(existing){
         const t=existing.trade;
