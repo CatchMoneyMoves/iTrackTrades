@@ -472,7 +472,7 @@ let hlSyncing=false;
 const HL_DEXES=['','xyz'];
 // Protect older finalized Hyperliquid trades from being recalculated by future syncs.
 // May 15-20 numbers are already confirmed manually. Sync may still create/update May 27 and future trades.
-const HL_WRITE_LOCK_BEFORE_DK='2026-05-27';
+const HL_WRITE_LOCK_BEFORE_DK='2026-05-15';
 
 const SETUPS=['Break & Retest','Candle Breakout','Bounce','N/A'];
 const TAGS=[
@@ -1939,7 +1939,7 @@ async function syncHyperliquid(){
     fills=dedupeHyperliquidFills(fills);
 
     const HL_HISTORY_FLOOR_MS=new Date('2026-05-15T00:00:00').getTime();
-    const HL_ACTION_LOOKBACK_MS=72*60*60*1000;
+    const HL_ACTION_LOOKBACK_MS=30*24*60*1000;
     const nowMs=Date.now();
     const actionCutoffMs=Math.max(
       HL_HISTORY_FLOOR_MS,
