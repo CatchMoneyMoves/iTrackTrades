@@ -1818,7 +1818,24 @@ function groupFillsIntoTrades(fills,openPositions){
   const closed=[];
   const open=[];
   for(const coin in byCoin){
-    const sorted=byCoin[coin].slice().sort((a,b)=>(a.time||0)-(b.time||0));
+    // Sort by time, then by execution order within same-time ties.
+    // Hyperliquid returns batched same-timestamp fills in arbitrary order, so we reconstruct
+    // execution order from startPosition. Chain rule: next fill's startPos = previous fill's endPos.
+    //   - Extending fills (open/add): |startPos| ascending — flat-to-position first.
+    //   - Reducing fills (close/trim): |startPos| descending — biggest cut first, fill hitting 0 last.
+    //   - Within a same-time batch, extending fills come before reducing fills.
+    const sorted=byCoin[coin].slice().sort((a,b)=>{
+      const t=(a.time||0)-(b.time||0);
+      if(t!==0)return t;
+      const aStart=parseFloat(a.startPosition)||0;
+      const bStart=parseFloat(b.startPosition)||0;
+      const aDelta=(a.side==='B'?1:-1)*(parseFloat(a.sz)||0);
+      const bDelta=(b.side==='B'?1:-1)*(parseFloat(b.sz)||0);
+      const aExtends=Math.abs(aStart)<1e-9 || (aStart*aDelta>0);
+      const bExtends=Math.abs(bStart)<1e-9 || (bStart*bDelta>0);
+      if(aExtends!==bExtends)return aExtends?-1:1;
+      return aExtends?(Math.abs(aStart)-Math.abs(bStart)):(Math.abs(bStart)-Math.abs(aStart));
+    });
     let trade=null;
     for(const f of sorted){
       const sz=parseFloat(f.sz)||0;
@@ -1827,17 +1844,11 @@ function groupFillsIntoTrades(fills,openPositions){
       const cp=parseFloat(f.closedPnl)||0;
       const startPos=parseFloat(f.startPosition)||0;
       const signedDelta=(f.side==='B'?sz:-sz);
-      const endPos=startPos+signedDelta;
-
-      // Do not create a new journal trade from a close-only fill.
-      // This was the cause of the -$0.79 issue: the final partial close got treated as a whole trade.
-      if(!trade && isReducingExistingPosition(startPos,signedDelta,endPos)){
-        continue;
-      }
 
       if(!trade){
-        // Start only from a true flat-to-position open. If the fill is merely adding to a position
-        // that was opened before our fill window, skip it rather than calculate bad P&L.
+        // Start only from a true flat-to-position open. With proper sort, this is the first fill
+        // in a sequence. Mid-position fills (startPos != 0 with no active trade) mean the sequence
+        // started before our window — skip them rather than fabricate a bad cost basis.
         if(Math.abs(startPos)>1e-9)continue;
         const dirSign=signedDelta>0?1:-1;
         trade={
@@ -1877,7 +1888,11 @@ function groupFillsIntoTrades(fills,openPositions){
         }
       }
 
-      if(Math.abs(endPos)<1e-9&&trade){
+      // Close the trade when our OWN tracked position nets to zero, NOT when this single fill's
+      // endPos is zero. An intermediate partial close can transiently bring endPos to 0 while the
+      // trade is still open — that was the source of the -$0.79 and -$16.20 bugs.
+      const tradeNetSize=trade.openSize-trade.closeSize;
+      if(Math.abs(tradeNetSize)<1e-9){
         trade.entryPrice=trade.openSize>0?trade.openNotional/trade.openSize:0;
         trade.exitPrice=trade.closeSize>0?trade.closeNotional/trade.closeSize:0;
         trade.size=trade.openSize;
