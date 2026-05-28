@@ -469,7 +469,7 @@ let startingBalance=0;
 let hlWallet='';
 let hlLastSync=0;
 let hlSyncing=false;
-const HL_DEXES=['','xyz'];  
+const HL_DEXES=['','xyz'];
 
 const SETUPS=['Break & Retest','Candle Breakout','Bounce','N/A'];
 const TAGS=[
@@ -491,19 +491,6 @@ function showSyncStatus(state, text){
   if(state==='synced'){setTimeout(()=>{el.classList.remove('show');},1500);}
   else if(state==='error'){setTimeout(()=>{el.classList.remove('show');},4000);}
 }
-
-// ============================================================
-// CLOUD SYNC (Supabase)
-// ============================================================
-// Source of truth ordering:
-//   1. Supabase (authoritative) — pulled on every load + after every write
-//   2. localStorage (cache only) — used as fallback if Supabase is unreachable
-//
-// IMPORTANT: localStorage is NEVER allowed to clobber a value successfully
-// pulled from Supabase. The previous version overwrote startingBalance,
-// hlWallet, and hlLastSync with stale localStorage values in
-// init(), which is why Balance went stale on fresh devices/sessions.
-// ============================================================
 
 async function cloudPullAll(){
   if(!currentUser)return;
@@ -534,14 +521,12 @@ async function cloudPullAll(){
     if(settings){
       quickLinks=settings.quick_links||[];
       customPairs=settings.custom_pairs||[];
-      // All HL-related state lives in cloud — these load authoritatively.
       hlWallet=settings.hl_wallet||'';
       startingBalance=settings.starting_balance!=null?parseFloat(settings.starting_balance)||0:0;
       hlLastSync=settings.hl_last_sync!=null?parseInt(settings.hl_last_sync)||0:0;
     }
     if(!customPairs.length)customPairs=['XAUUSD','EURUSD','GBPUSD','USDJPY','USDCAD','AUDUSD','NZDUSD','US30','NAS100','SPX500'];
     if(!quickLinks.length)quickLinks=[{name:'TradingView',url:'https://tradingview.com'},{name:'Hyperliquid',url:'https://app.hyperliquid.xyz/portfolio'},{name:'Discord',url:'https://discord.com'}];
-    // Update cache for next offline load
     safeSetItem('tj2_data',JSON.stringify(slimData(data)));
     safeSetItem('tj2_links',JSON.stringify(quickLinks));
     safeSetItem('tj2_pairs',JSON.stringify(customPairs));
@@ -552,7 +537,6 @@ async function cloudPullAll(){
     showSyncStatus('synced','✓ Synced');
   }catch(err){
     console.error('Pull failed:',err);
-    // OFFLINE FALLBACK ONLY — Supabase wasn't reachable. Load whatever cache we have.
     data=JSON.parse(localStorage.getItem('tj2_data')||'{}');
     quickLinks=JSON.parse(localStorage.getItem('tj2_links')||'[]');
     customPairs=JSON.parse(localStorage.getItem('tj2_pairs')||'[]');
@@ -608,8 +592,6 @@ async function cloudDeleteTrade(tradeId){
   }
 }
 
-// Single source of truth for persisting settings. Always called after
-// hlWallet / startingBalance / hlLastSync changes.
 async function cloudSaveSettings(){
   if(!currentUser||!syncReady)return;
   try{
@@ -639,7 +621,6 @@ function autoResult(pnl){return pnl>0?'Win':pnl<0?'Loss':'Breakeven';}
 function pnlStr(val){const v=parseFloat(val)||0;return v>=0?`+$${v.toFixed(2)}`:`-$${Math.abs(v).toFixed(2)}`;}
 function pnlClass(val){return parseFloat(val)>=0?'green':'red';}
 
-// Smart number formatting — fewer decimals for large numbers, more for small (crypto-friendly)
 function fmtPrice(p){
   const v=parseFloat(p);
   if(!isFinite(v)||v==null)return '';
@@ -658,8 +639,6 @@ function fmtSize(s){
   return v.toFixed(4);
 }
 
-// Group day's trades by symbol + outcome so each pill is single-colored.
-// MNQ win + MNQ loss on same day = two pills (won't average misleadingly).
 function groupSymbolsForDay(trades){
   const buckets={};
   trades.forEach(t=>{
@@ -673,7 +652,6 @@ function groupSymbolsForDay(trades){
   return Object.values(buckets);
 }
 
-// Safe localStorage write — swallows QuotaExceededError so it never blocks cloud sync
 function safeSetItem(key,value){
   try{localStorage.setItem(key,value);return true;}
   catch(err){
@@ -686,8 +664,6 @@ function safeSetItem(key,value){
   }
 }
 
-// Build a slim copy of data without screenshots — keeps localStorage cache small
-// Screenshots stay in memory + Supabase. Cache is only for fast reload, not source of truth.
 function slimData(d){
   const out={};
   for(const dk in d){
@@ -703,7 +679,6 @@ function saveData(){safeSetItem('tj2_data',JSON.stringify(slimData(data)));}
 function saveLinks(){safeSetItem('tj2_links',JSON.stringify(quickLinks));cloudSaveSettings();}
 function savePairs(){safeSetItem('tj2_pairs',JSON.stringify(customPairs));cloudSaveSettings();}
 
-// Lossless — return image untouched, no resize or quality reduction
 function compressImage(dataUrl){
   return Promise.resolve(dataUrl);
 }
@@ -807,9 +782,6 @@ function toggleSidebar(){
 
 async function init(){
   await cloudPullAll();
-  // NOTE: HL state (wallet, startingBalance, hlLastSync) is loaded
-  // authoritatively from Supabase inside cloudPullAll(). DO NOT re-read from
-  // localStorage here — that was the old bug that wiped cloud values to 0.
   const now=new Date();
   currentYear=now.getFullYear();currentMonth=now.getMonth();
   qYear=now.getFullYear();
@@ -818,7 +790,6 @@ async function init(){
   renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();renderHlStatus();
   document.addEventListener('keydown',e=>{
     if(e.key==='Escape'){closeModalDirect();closeDetailDirect();closeLightbox();return;}
-    // Arrow-key gallery nav only when lightbox is open
     const lb=document.getElementById('lightbox');
     if(lb && lb.classList.contains('open')){
       if(e.key==='ArrowLeft'){e.preventDefault();lbPrev();}
@@ -1107,7 +1078,6 @@ function renderQdTrades(){
     wrap.innerHTML=`<div style="text-align:center;color:#475569;padding:40px;font-size:0.82rem">No trades for this setup</div>`;
     return;
   }
-  // Header bar with select-mode toggle + bulk delete button
   const selectedCount=qdSelected.size;
   const headerBar=`<div class="qd-select-bar">
     ${qdSelectMode
@@ -1119,7 +1089,6 @@ function renderQdTrades(){
          <div style="flex:1"></div>
          <div style="font-size:0.7rem;color:#475569">${sorted.length} shown</div>`}
   </div>`;
-  // Trade rows — checkbox replaces arrow when in select mode
   const rowsHtml=sorted.map(t=>{
     const idKey=`${t.date}::${t.id}`;
     const isSel=qdSelected.has(idKey);
@@ -1145,11 +1114,8 @@ function renderQdTrades(){
   wrap.innerHTML=headerBar+rowsHtml;
 }
 
-// ============================================================
-// BULK SELECT + DELETE on Quarter Detail
-// ============================================================
 let qdSelectMode=false;
-let qdSelected=new Set();  // keys are "date::id"
+let qdSelected=new Set();
 
 function qdToggleSelectMode(){
   qdSelectMode=!qdSelectMode;
@@ -1180,7 +1146,6 @@ async function qdBulkDelete(){
   const count=qdSelected.size;
   if(!confirm(`Delete ${count} trade${count>1?'s':''}? This cannot be undone.`))return;
   showSyncStatus('syncing',`⟳ Deleting ${count}...`);
-  // Snapshot the selection so we can clear before async ops finish
   const toDelete=Array.from(qdSelected);
   qdSelected.clear();
   qdSelectMode=false;
@@ -1195,10 +1160,8 @@ async function qdBulkDelete(){
     }
   }
   saveData();
-  // Rebuild currentQTrades to reflect deletions
   const removedKeys=new Set(toDelete);
   currentQTrades=currentQTrades.filter(t=>!removedKeys.has(`${t.date}::${t.id}`));
-  // Recompute quarter header stats from updated list
   const pnl=currentQTrades.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
   const wins=currentQTrades.filter(t=>t.result==='Win').length;
   const losses=currentQTrades.filter(t=>t.result==='Loss').length;
@@ -1213,7 +1176,6 @@ async function qdBulkDelete(){
     <div class="qd-stat"><div class="qd-stat-val green">${wins}</div><div class="qd-stat-lbl">Wins</div></div>
     <div class="qd-stat"><div class="qd-stat-val red">${losses}</div><div class="qd-stat-lbl">Losses</div></div>
     <div class="qd-stat"><div class="qd-stat-val muted">${currentQTrades.filter(t=>t.result==='Breakeven').length}</div><div class="qd-stat-lbl">B/E</div></div>`;
-  // Redraw chart with updated trade list
   if(qdChart){qdChart.destroy();qdChart=null;}
   if(currentQTrades.length){const{labels,values}=buildChartData(currentQTrades);qdChart=makeChart(document.getElementById('qd-chart'),labels,values);}
   renderCalendar();renderQuarterlyOverview();updateStats();
@@ -1262,7 +1224,6 @@ function renderLoggedTrades(){
   const allTrades=(data[activeDate]||{}).trades||[];
   const wrap=document.getElementById('logged-trades');
   if(!allTrades.length){wrap.innerHTML='';return;}
-  // Preserve original index so edit/delete still target the right record after filtering
   const indexed=allTrades.map((t,i)=>({trade:t,idx:i}));
   const filtered=activePairFilter?indexed.filter(x=>x.trade.pair===activePairFilter):indexed;
   const chip=activePairFilter
@@ -1273,7 +1234,6 @@ function renderLoggedTrades(){
     return;
   }
   wrap.innerHTML=chip+filtered.map(({trade:t,idx:i})=>{
-    // Realized so far — for open trades that have taken partial closes
     let realizedSoFar='';
     if(t.result==='Open' && (t.partial_exits||[]).length){
       const realized=t.partial_exits.reduce((s,p)=>s+(parseFloat(p.pnl)||0)-(parseFloat(p.fee)||0),0);
@@ -1316,16 +1276,11 @@ function openTradeDetail(dk,idx){
   editingDk=dk;editingIdx=idx;
   const ytId=getYTId(t.youtube||'');
 
-  // Build exit display rows. If trade has partial_exits, show each numbered.
-  // If single close (no partials), just show "Exit Price". For open trades with
-  // partials, show "1st Exit", "2nd Exit", etc. (no "Final Exit" yet). For closed
-  // trades with multiple partials, last one is labeled "Final Exit".
   let exitsHtml='';
   let realizedHtml='';
   const isOpen=t.result==='Open';
   const partials=t.partial_exits||[];
   if(partials.length>1){
-    // Multiple exits — show each numbered
     const ordinal=(n)=>{
       const labels=['1st','2nd','3rd','4th','5th','6th','7th','8th','9th','10th'];
       return labels[n]||(n+1+'th');
@@ -1335,13 +1290,11 @@ function openTradeDetail(dk,idx){
       const lbl=(!isOpen && isLast)?'Final Exit':`${ordinal(i)} Exit`;
       return `<div class="detail-item"><div class="detail-lbl">${lbl}</div><div class="detail-val" style="font-family:ui-monospace,monospace">$${fmtPrice(p.price)} <span style="color:#64748b;font-size:0.7rem">· ${fmtSize(p.size)}</span></div></div>`;
     }).join('');
-    // Realized so far for open trades
     if(isOpen){
       const realized=partials.reduce((s,p)=>s+(parseFloat(p.pnl)||0)-(parseFloat(p.fee)||0),0);
       realizedHtml=`<div class="detail-item"><div class="detail-lbl">Realized so far</div><div class="detail-val ${realized>=0?'green':'red'}">${pnlStr(realized)}</div></div>`;
     }
   } else if(t.exit_price){
-    // Single close — show standard exit price
     exitsHtml=`<div class="detail-item"><div class="detail-lbl">Exit Price</div><div class="detail-val" style="font-family:ui-monospace,monospace">$${fmtPrice(t.exit_price)}</div></div>`;
   }
 
@@ -1439,7 +1392,6 @@ function showTradeForm(existing){
   document.getElementById('add-trade-btn').style.display='none';
   const w=document.getElementById('trade-form-wrap');
   w.style.display='block';
-  // New trade with an active pair filter? Pre-fill the pair field so the user doesn't re-type.
   const e=existing||(activePairFilter?{pair:activePairFilter}:{});
   w.innerHTML=`<div class="trade-form">
     <div style="font-size:0.75rem;color:#a78bfa;margin-bottom:10px;font-weight:600">${existing?'✏️ Editing Trade':'New Trade'}</div>
@@ -1546,7 +1498,6 @@ async function saveTrade(){
   const pnl=parseFloat(document.getElementById('tf-pnl').value)||0;
   const ytInp=document.getElementById('yt-input');
   const existingId=(editingIdx!==null&&data[activeDate]&&data[activeDate].trades[editingIdx])?data[activeDate].trades[editingIdx].id:null;
-  // Preserve source/fees/draft fields when editing an auto-synced HL trade
   const existing=(editingIdx!==null&&data[activeDate])?data[activeDate].trades[editingIdx]:null;
   const t={
     id:existingId||Date.now(),
@@ -1563,7 +1514,7 @@ async function saveTrade(){
     source:existing?existing.source:'manual',
     fees:existing?existing.fees:0,
     hl_fill_ids:existing?existing.hl_fill_ids:[],
-    is_draft:existing?false:false,  // editing always clears draft flag
+    is_draft:existing?false:false,
     size:existing?existing.size:null,
     entry_price:existing?existing.entry_price:null,
     exit_price:existing?existing.exit_price:null
@@ -1590,18 +1541,10 @@ async function deleteTrade(idx){
   renderQuarterlyOverview();updateStats();
 }
 
-// ============================================================
-// LIGHTBOX GALLERY
-// ============================================================
-// Click any screenshot to open the full-size viewer. If the trade has
-// multiple screenshots, use left/right arrows on screen or arrow keys
-// on keyboard to navigate. Esc closes. Clicking outside the image closes.
-// ============================================================
 let lbGallery=[];
 let lbIndex=0;
 
 function openLightbox(dk,tradeIdx,imgIdx){
-  // Support legacy single-src calls too (just pass a src string as first arg)
   if(typeof dk==='string' && tradeIdx===undefined){
     lbGallery=[dk];
     lbIndex=0;
@@ -1644,24 +1587,11 @@ function lbNext(){
   showLbImage();
 }
 
-// Only close when clicking the dark backdrop, not the image or buttons
 function closeLightboxBg(e){
   if(e.target.id==='lightbox')closeLightbox();
 }
 function closeLightbox(){document.getElementById('lightbox').classList.remove('open');}
 
-// ============================================================
-// HEADER STATS
-// ============================================================
-// "All-time P&L" = sum of P&L from ALL journal trades (Webull + HL combined)
-// "HL Balance"   = startingBalance + sum(P&L from source='hyperliquid' trades)
-//                  → startingBalance is set manually by clicking the number.
-//                  → When you click and enter a value, that becomes the
-//                    locked-in baseline AT THIS MOMENT. Every HL trade
-//                    synced after that point adjusts it automatically.
-//                  → No API ledger parsing, no deposit detection. Manual
-//                    baseline + live P&L = your real balance.
-// ============================================================
 function updateStats(){
   const all=Object.values(data).flatMap(d=>d.trades||[]);
   const totalPnl=all.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
@@ -1673,9 +1603,6 @@ function updateStats(){
   document.getElementById('hs-wr').style.color='#94a3b8';
   document.getElementById('hs-pnl').textContent=pnlStr(totalPnl);
   document.getElementById('hs-pnl').style.color=totalPnl>0?'#4ade80':totalPnl<0?'#f87171':'#64748b';
-  // HL Balance — startingBalance already includes the offset that makes
-  // (startingBalance + hlPnl) equal whatever the user entered at set time.
-  // As new HL trades sync, hlPnl grows and balance auto-adjusts.
   const hlBalance=startingBalance+hlPnl;
   const balEl=document.getElementById('hs-balance');
   if(balEl){
@@ -1683,9 +1610,6 @@ function updateStats(){
     if(startingBalance===0&&hlPnl===0){
       balEl.style.color='#94a3b8';
     } else {
-      // Compare to baseline (the entered value at last set time).
-      // Baseline = startingBalance + hlPnlAtSetTime, but we don't store hlPnlAtSetTime.
-      // Instead, color by sign of total balance: green positive, red negative.
       balEl.style.color=hlBalance>=0?'#4ade80':'#f87171';
     }
     const parentEl=balEl.closest('.hstat');
@@ -1698,9 +1622,6 @@ function updateStats(){
   }
 }
 
-// Re-anchor the HL Balance to whatever the user types in. We compute
-// startingBalance so that (startingBalance + currentHlPnl) equals the
-// entered amount. Future HL trades shift hlPnl, balance updates live.
 async function editStartingBalance(){
   const all=Object.values(data).flatMap(d=>d.trades||[]);
   const hlPnl=all.filter(t=>t.source==='hyperliquid').reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
@@ -1715,24 +1636,11 @@ async function editStartingBalance(){
   if(input===null)return;
   const entered=parseFloat(input);
   if(isNaN(entered)){alert('Please enter a valid number.');return;}
-  // Solve: entered = startingBalance + hlPnl → startingBalance = entered - hlPnl
   startingBalance=parseFloat((entered-hlPnl).toFixed(2));
   safeSetItem('tj2_balance',String(startingBalance));
   await cloudSaveSettings();
   updateStats();
 }
-
-// ============================================================
-// HYPERLIQUID AUTO-SYNC
-// ============================================================
-// Pulls fills from Hyperliquid's public REST API and groups them
-// into closed round-trip trades, then inserts as draft journal
-// entries. Net P&L = closedPnl − fees (commission). The fees
-// stay attached for display next to the pair.
-//
-// HL Balance is anchored manually by the user via the header click.
-// No ledger API parsing — deposits/withdrawals are handled by re-anchoring.
-// ============================================================
 
 function renderHlStatus(){
   const addrEl=document.getElementById('hl-addr');
@@ -1777,7 +1685,6 @@ async function setHlWallet(){
   renderHlStatus();
 }
 
-// Unified info request — set dex='' for main perps, dex='xyz' for HIP-3 markets like Gold.
 async function hlInfoRequest(payload,dex){
   if(dex)payload.dex=dex;
   const r=await fetch('https://api.hyperliquid.xyz/info',{
@@ -1795,7 +1702,6 @@ async function fetchHyperliquidFills(wallet,dex){
   return fills;
 }
 
-// Get current open positions for a given dex. Returns dict { COIN: signedSize }
 async function fetchHyperliquidState(wallet,dex){
   const state=await hlInfoRequest({type:'clearinghouseState',user:wallet},dex);
   const positions={};
@@ -1808,11 +1714,6 @@ async function fetchHyperliquidState(wallet,dex){
   return positions;
 }
 
-// Walk fills per coin, group into round-trip trades using running position.
-// A trade starts on the first non-flat fill and ends when running position returns to ~0.
-// If a coin has fills that NEVER close (running position non-zero at end) AND that coin
-// appears in current open positions, the leftover trade is returned as OPEN.
-// Returns: { closed: [Trade], open: [Trade] }
 function groupFillsIntoTrades(fills,openPositions){
   openPositions=openPositions||{};
   const byCoin={};
@@ -1863,7 +1764,6 @@ function groupFillsIntoTrades(fills,openPositions){
         } else {
           trade.closeSize+=sz;
           trade.closeNotional+=sz*px;
-          // Each closing fill is a partial exit
           trade.partial_exits.push({
             price:px,
             size:sz,
@@ -1881,11 +1781,10 @@ function groupFillsIntoTrades(fills,openPositions){
         trade=null;
       }
     }
-    // Leftover trade → only count it as OPEN if state confirms there's a live position on this coin
     if(trade && openPositions[coin]!==undefined){
       trade.entryPrice=trade.openSize>0?trade.openNotional/trade.openSize:0;
       trade.exitPrice=0;
-      trade.size=trade.openSize-trade.closeSize;  // net current size
+      trade.size=trade.openSize-trade.closeSize;
       trade.isOpen=true;
       open.push(trade);
     }
@@ -1893,8 +1792,6 @@ function groupFillsIntoTrades(fills,openPositions){
   return {closed,open};
 }
 
-// Find an existing journal entry that contains ANY of these HL fill IDs.
-// Used to decide whether to UPDATE an existing draft or CREATE a new entry.
 function findExistingTradeByFillIds(fillIds){
   const idSet=new Set(fillIds.map(String));
   for(const dk in data){
@@ -1910,9 +1807,6 @@ function findExistingTradeByFillIds(fillIds){
   return null;
 }
 
-// Fetch and trade-grouping helpers above. No ledger fetching anymore —
-// HL Balance is now anchored manually by the user via editStartingBalance().
-
 async function syncHyperliquid(){
   if(!hlWallet){
     alert('Set your Hyperliquid wallet address first (click "Set wallet…" in the sidebar).');
@@ -1924,7 +1818,6 @@ async function syncHyperliquid(){
   if(btn)btn.disabled=true;
   showSyncStatus('syncing','⟳ Pulling Hyperliquid…');
   try{
-    // Loop over all configured DEXes so HIP-3 markets (Gold on 'xyz') get included.
     let fills=[];
     let openPositions={};
     for(const dex of HL_DEXES){
@@ -1938,11 +1831,26 @@ async function syncHyperliquid(){
         console.warn(`HL fetch failed for dex='${dex||'main'}':`,err);
       }
     }
-    // Cutoff: only sync fills from May 15, 2026 onward. STRICT — never pull
-    // earlier fills, even for currently-open positions. If a position was
-    // opened before the cutoff, it won't sync; user can log manually.
     const HL_SYNC_CUTOFF_MS=new Date('2026-05-15T00:00:00').getTime();
     const workingFills=HL_SYNC_CUTOFF_MS?fills.filter(f=>f.time>=HL_SYNC_CUTOFF_MS):fills;
+
+    // ============================================================
+    // 🔍 DIAGNOSTIC LOGGING — paste browser console output to Claude
+    // ============================================================
+    console.log('========== HL SYNC DIAGNOSTIC ==========');
+    const ethFills=workingFills.filter(f=>f.coin==='ETH');
+    console.log('ETH FILLS (raw from HL):',JSON.stringify(ethFills,null,2));
+    const _diagGrouped=groupFillsIntoTrades(workingFills,openPositions);
+    console.log('GROUPED CLOSED TRADES:',JSON.stringify(_diagGrouped.closed,null,2));
+    console.log('GROUPED OPEN TRADES:',JSON.stringify(_diagGrouped.open,null,2));
+    _diagGrouped.closed.filter(g=>g.coin==='ETH').forEach((g,i)=>{
+      const existing=findExistingTradeByFillIds(g.fillIds);
+      console.log(`ETH closed trade #${i} — fillIds:`,g.fillIds);
+      console.log(`  → existing match in journal:`,existing?{dk:existing.dk,idx:existing.idx,trade_id:existing.trade.id,trade_pnl:existing.trade.pnl,trade_fill_ids:existing.trade.hl_fill_ids}:'NONE');
+    });
+    console.log('JOURNAL ENTRIES on 2026-05-27:',JSON.stringify((data['2026-05-27']||{}).trades||[],null,2));
+    console.log('========================================');
+    // ============================================================
 
     if(!workingFills.length){
       hlLastSync=Date.now();
@@ -1958,7 +1866,6 @@ async function syncHyperliquid(){
     let createdClosed=0, updatedClosed=0;
     let createdOpen=0, updatedOpen=0;
 
-    // ---- Process CLOSED trades ----
     for(const g of closed){
       const existing=findExistingTradeByFillIds(g.fillIds);
       const dt=new Date(g.exitTime);
@@ -1966,7 +1873,6 @@ async function syncHyperliquid(){
       const netPnl=parseFloat((g.priceP_L-g.fees).toFixed(2));
 
       if(existing){
-        // UPDATE existing entry — preserve user-added fields (screenshots, tags, notes, setup, plan, timeframe, youtube)
         const t=existing.trade;
         t.pnl=netPnl;
         t.result=netPnl>0?'Win':netPnl<0?'Loss':'Breakeven';
@@ -1977,7 +1883,6 @@ async function syncHyperliquid(){
         t.hl_fill_ids=g.fillIds;
         t.partial_exits=g.partial_exits||[];
         t.source='hyperliquid';
-        // Move date key if the close happened on a different day than the open
         if(existing.dk!==dk){
           data[existing.dk].trades.splice(existing.idx,1);
           if(!data[existing.dk].trades.length)delete data[existing.dk];
@@ -1987,7 +1892,6 @@ async function syncHyperliquid(){
         await cloudUpsertTrade(dk,t);
         updatedClosed++;
       } else {
-        // CREATE new closed-trade entry
         const trade={
           id:g.fillIds[0],
           pair:g.coin,
@@ -2014,16 +1918,12 @@ async function syncHyperliquid(){
       }
     }
 
-    // ---- Process OPEN trades ----
     for(const g of open){
       const existing=findExistingTradeByFillIds(g.fillIds);
       const dt=new Date(g.entryTime);
       const dk=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
-      // For open trades, P&L is unknown yet — use realized closedPnl (e.g. from partial closes) but mark as open
-      const partialPnl=parseFloat((g.priceP_L-g.fees).toFixed(2));
 
       if(existing){
-        // UPDATE — position size or partial-close info may have changed
         const t=existing.trade;
         t.size=parseFloat(g.size.toFixed(8));
         t.entry_price=parseFloat(g.entryPrice.toFixed(8));
@@ -2031,11 +1931,9 @@ async function syncHyperliquid(){
         t.hl_fill_ids=g.fillIds;
         t.partial_exits=g.partial_exits||[];
         t.source='hyperliquid';
-        // Don't touch pnl/exit_price/result while open — they belong to the closed trade
         await cloudUpsertTrade(existing.dk,t);
         updatedOpen++;
       } else {
-        // CREATE new draft entry for the open position
         const trade={
           id:g.fillIds[0],
           pair:g.coin,
@@ -2068,7 +1966,6 @@ async function syncHyperliquid(){
     saveData();
     renderCalendar();renderQuarterlyOverview();updateStats();renderHlStatus();
 
-    // Status message
     const parts=[];
     if(createdOpen)parts.push(`${createdOpen} new open`);
     if(updatedOpen)parts.push(`${updatedOpen} open updated`);
