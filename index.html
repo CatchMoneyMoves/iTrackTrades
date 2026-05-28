@@ -1517,7 +1517,8 @@ async function saveTrade(){
     is_draft:existing?false:false,
     size:existing?existing.size:null,
     entry_price:existing?existing.entry_price:null,
-    exit_price:existing?existing.exit_price:null
+    exit_price:existing?existing.exit_price:null,
+    partial_exits:existing?(existing.partial_exits||[]):[]
   };
   if(!data[activeDate])data[activeDate]={trades:[]};
   if(editingIdx!==null){data[activeDate].trades[editingIdx]=t;}
@@ -1697,7 +1698,9 @@ async function hlInfoRequest(payload,dex){
 }
 
 async function fetchHyperliquidFills(wallet,dex){
-  const fills=await hlInfoRequest({type:'userFills',user:wallet,aggregateByTime:true},dex);
+  // Use non-aggregated fills. Aggregated fills can change `tid` values and can collapse
+  // partial exits in a way that makes the journal save only the final partial close.
+  const fills=await hlInfoRequest({type:'userFills',user:wallet,aggregateByTime:false},dex);
   if(!Array.isArray(fills))throw new Error('Unexpected response shape from Hyperliquid');
   return fills;
 }
@@ -1714,36 +1717,83 @@ async function fetchHyperliquidState(wallet,dex){
   return positions;
 }
 
+function dateKeyFromMs(ms){
+  const dt=new Date(ms);
+  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+}
+
+function hlFillId(f){
+  if(f && f.tid!=null)return String(f.tid);
+  if(f && f.hash!=null)return String(f.hash);
+  return `${f.coin||''}-${f.time||''}-${f.side||''}-${f.sz||''}-${f.px||''}`;
+}
+
+function isCloseNumber(a,b,relTol=0.01,absTol=1e-8){
+  a=parseFloat(a);b=parseFloat(b);
+  if(!isFinite(a)||!isFinite(b))return false;
+  return Math.abs(a-b)<=Math.max(absTol,Math.abs(b)*relTol);
+}
+
+function finalizeHlGroupedTrade(trade){
+  trade.entryPrice=trade.openSize>0?trade.openNotional/trade.openSize:0;
+  trade.exitPrice=trade.closeSize>0?trade.closeNotional/trade.closeSize:0;
+  trade.size=trade.openSize;
+  trade.priceP_L=parseFloat(trade.priceP_L.toFixed(8));
+  trade.fees=parseFloat(trade.fees.toFixed(8));
+  trade.partial_exits=(trade.partial_exits||[]).map(p=>({
+    price:parseFloat((parseFloat(p.price)||0).toFixed(8)),
+    size:parseFloat((parseFloat(p.size)||0).toFixed(8)),
+    time:p.time,
+    pnl:parseFloat((parseFloat(p.pnl)||0).toFixed(2)),
+    fee:parseFloat((parseFloat(p.fee)||0).toFixed(4))
+  }));
+  return trade;
+}
+
 function groupFillsIntoTrades(fills,openPositions){
   openPositions=openPositions||{};
   const byCoin={};
   fills.forEach(f=>{
     const c=f.coin;
+    if(!c)return;
     if(!byCoin[c])byCoin[c]=[];
     byCoin[c].push(f);
   });
+
   const closed=[];
   const open=[];
+
   for(const coin in byCoin){
-    const sorted=byCoin[coin].slice().sort((a,b)=>a.time-b.time);
+    const sorted=byCoin[coin].slice().sort((a,b)=>(a.time||0)-(b.time||0));
     let trade=null;
+
     for(const f of sorted){
-      const sz=parseFloat(f.sz)||0;
+      const sz=Math.abs(parseFloat(f.sz)||0);
       const px=parseFloat(f.px)||0;
-      const fee=parseFloat(f.fee)||0;
+      const fee=Math.abs(parseFloat(f.fee)||0);
       const cp=parseFloat(f.closedPnl)||0;
       const startPos=parseFloat(f.startPosition)||0;
       const signedDelta=(f.side==='B'?sz:-sz);
-      const endPos=startPos+signedDelta;
+      const dirText=String(f.dir||'').toLowerCase();
+      const tid=hlFillId(f);
+      if(!sz||!px)continue;
+
       if(!trade){
-        const dirSign=signedDelta>0?1:-1;
+        // Do not create a fake new trade from a closing fill. This was the cause of
+        // the May 27 ETH bug: the last partial close was treated as its own trade.
+        const looksLikeClose=dirText.includes('close') || (Math.abs(cp)>1e-9 && Math.abs(startPos)>1e-9 && startPos*signedDelta<0);
+        if(looksLikeClose){
+          console.warn('HL sync: skipped closing fill because its opening fill is outside the sync window or already missing from the grouped cycle:',f);
+          continue;
+        }
+        const dirSign=signedDelta>=0?1:-1;
         trade={
           coin,
           direction:dirSign>0?'long':'short',
           dirSign,
           priceP_L:cp,
           fees:fee,
-          fillIds:[String(f.tid)],
+          fillIds:[tid],
           entryTime:f.time,
           exitTime:f.time,
           openSize:sz,
@@ -1752,48 +1802,63 @@ function groupFillsIntoTrades(fills,openPositions){
           closeNotional:0,
           partial_exits:[]
         };
-      } else {
-        trade.fees+=fee;
-        trade.priceP_L+=cp;
-        trade.fillIds.push(String(f.tid));
-        trade.exitTime=f.time;
-        const fillDirMatchesTrade=(trade.dirSign>0 && signedDelta>0)||(trade.dirSign<0 && signedDelta<0);
-        if(fillDirMatchesTrade){
-          trade.openSize+=sz;
-          trade.openNotional+=sz*px;
-        } else {
-          trade.closeSize+=sz;
-          trade.closeNotional+=sz*px;
-          trade.partial_exits.push({
-            price:px,
-            size:sz,
-            time:f.time,
-            pnl:parseFloat(cp.toFixed(2)),
-            fee:parseFloat(fee.toFixed(4))
-          });
-        }
+        continue;
       }
-      if(Math.abs(endPos)<1e-9){
-        trade.entryPrice=trade.openSize>0?trade.openNotional/trade.openSize:0;
-        trade.exitPrice=trade.closeSize>0?trade.closeNotional/trade.closeSize:0;
-        trade.size=trade.openSize;
-        closed.push(trade);
+
+      trade.fees+=fee;
+      trade.priceP_L+=cp;
+      if(!trade.fillIds.includes(tid))trade.fillIds.push(tid);
+      trade.exitTime=f.time;
+
+      const sameDirection=signedDelta*trade.dirSign>0;
+      const isCloseFill=dirText.includes('close') || !sameDirection || (Math.abs(cp)>1e-9 && Math.abs(startPos)>1e-9 && startPos*signedDelta<0);
+
+      if(isCloseFill){
+        trade.closeSize+=sz;
+        trade.closeNotional+=sz*px;
+        trade.partial_exits.push({
+          price:px,
+          size:sz,
+          time:f.time,
+          pnl:parseFloat(cp.toFixed(2)),
+          fee:parseFloat(fee.toFixed(4))
+        });
+      } else {
+        trade.openSize+=sz;
+        trade.openNotional+=sz*px;
+      }
+
+      // Close only when the accumulated partial exits have covered the opened size.
+      // Do not rely only on Hyperliquid's startPosition/endPosition when grouping,
+      // because aggregate/partial-close edge cases can make an early partial look flat.
+      const closeTolerance=Math.max(1e-8,trade.openSize*0.000001);
+      if(trade.closeSize+closeTolerance>=trade.openSize && trade.closeSize>0){
+        closed.push(finalizeHlGroupedTrade(trade));
         trade=null;
       }
     }
-    if(trade && openPositions[coin]!==undefined){
-      trade.entryPrice=trade.openSize>0?trade.openNotional/trade.openSize:0;
-      trade.exitPrice=0;
-      trade.size=trade.openSize-trade.closeSize;
-      trade.isOpen=true;
-      open.push(trade);
+
+    if(trade){
+      const liveSize=Math.abs(parseFloat(openPositions[coin])||0);
+      const remaining=Math.max(0,trade.openSize-trade.closeSize);
+      if(liveSize>1e-9 || remaining>Math.max(1e-8,trade.openSize*0.000001)){
+        trade.entryPrice=trade.openSize>0?trade.openNotional/trade.openSize:0;
+        trade.exitPrice=trade.closeSize>0?trade.closeNotional/trade.closeSize:0;
+        trade.size=liveSize>1e-9?liveSize:remaining;
+        trade.isOpen=true;
+        open.push(trade);
+      } else if(trade.closeSize>0){
+        closed.push(finalizeHlGroupedTrade(trade));
+      }
     }
   }
+
   return {closed,open};
 }
 
 function findExistingTradeByFillIds(fillIds){
-  const idSet=new Set(fillIds.map(String));
+  const idSet=new Set((fillIds||[]).map(String));
+  if(!idSet.size)return null;
   for(const dk in data){
     const trades=(data[dk]||{}).trades||[];
     for(let i=0;i<trades.length;i++){
@@ -1805,6 +1870,43 @@ function findExistingTradeByFillIds(fillIds){
     }
   }
   return null;
+}
+
+function findExistingHyperliquidTrade(group,preferredDateKey){
+  const byFill=findExistingTradeByFillIds(group.fillIds||[]);
+  if(byFill)return byFill;
+
+  const pair=group.coin;
+  const entryDk=group.entryTime?dateKeyFromMs(group.entryTime):null;
+  const exitDk=group.exitTime?dateKeyFromMs(group.exitTime):entryDk;
+  const wantedDates=new Set([preferredDateKey,entryDk,exitDk].filter(Boolean));
+  const wantedBias=group.direction==='long'?'Bullish':'Bearish';
+  const wantedSize=parseFloat(group.size||group.openSize||0)||0;
+  const wantedEntry=parseFloat(group.entryPrice)||0;
+
+  let best=null;
+  let bestScore=0;
+  for(const dk in data){
+    const trades=(data[dk]||{}).trades||[];
+    for(let i=0;i<trades.length;i++){
+      const t=trades[i];
+      if((t.source||'')!=='hyperliquid')continue;
+      if((t.pair||'').toUpperCase()!==String(pair||'').toUpperCase())continue;
+
+      let score=4; // source + pair match
+      if(wantedDates.has(dk))score+=3;
+      if(t.bias===wantedBias)score+=1;
+      if(t.result==='Open'||t.is_draft||/^Position OPEN/i.test(t.notes||''))score+=3;
+      if(wantedSize && isCloseNumber(t.size,wantedSize,0.02))score+=3;
+      if(wantedEntry && isCloseNumber(t.entry_price,wantedEntry,0.01))score+=2;
+      if(!(t.hl_fill_ids||[]).length)score+=1;
+
+      // If there is no fill-id overlap, be conservative. This fallback is mainly for
+      // updating an existing open/draft entry when the later close fills come in.
+      if(score>bestScore){best={dk,idx:i,trade:t};bestScore=score;}
+    }
+  }
+  return bestScore>=8?best:null;
 }
 
 async function syncHyperliquid(){
@@ -1831,26 +1933,9 @@ async function syncHyperliquid(){
         console.warn(`HL fetch failed for dex='${dex||'main'}':`,err);
       }
     }
+
     const HL_SYNC_CUTOFF_MS=new Date('2026-05-15T00:00:00').getTime();
     const workingFills=HL_SYNC_CUTOFF_MS?fills.filter(f=>f.time>=HL_SYNC_CUTOFF_MS):fills;
-
-    // ============================================================
-    // 🔍 DIAGNOSTIC LOGGING — paste browser console output to Claude
-    // ============================================================
-    console.log('========== HL SYNC DIAGNOSTIC ==========');
-    const ethFills=workingFills.filter(f=>f.coin==='ETH');
-    console.log('ETH FILLS (raw from HL):',JSON.stringify(ethFills,null,2));
-    const _diagGrouped=groupFillsIntoTrades(workingFills,openPositions);
-    console.log('GROUPED CLOSED TRADES:',JSON.stringify(_diagGrouped.closed,null,2));
-    console.log('GROUPED OPEN TRADES:',JSON.stringify(_diagGrouped.open,null,2));
-    _diagGrouped.closed.filter(g=>g.coin==='ETH').forEach((g,i)=>{
-      const existing=findExistingTradeByFillIds(g.fillIds);
-      console.log(`ETH closed trade #${i} — fillIds:`,g.fillIds);
-      console.log(`  → existing match in journal:`,existing?{dk:existing.dk,idx:existing.idx,trade_id:existing.trade.id,trade_pnl:existing.trade.pnl,trade_fill_ids:existing.trade.hl_fill_ids}:'NONE');
-    });
-    console.log('JOURNAL ENTRIES on 2026-05-27:',JSON.stringify((data['2026-05-27']||{}).trades||[],null,2));
-    console.log('========================================');
-    // ============================================================
 
     if(!workingFills.length){
       hlLastSync=Date.now();
@@ -1863,14 +1948,22 @@ async function syncHyperliquid(){
 
     const {closed,open}=groupFillsIntoTrades(workingFills,openPositions);
 
+    console.log('========== HL SYNC DIAGNOSTIC ==========',{
+      rawFills:workingFills,
+      groupedClosed:closed,
+      groupedOpen:open,
+      openPositions,
+      journal:data
+    });
+
     let createdClosed=0, updatedClosed=0;
     let createdOpen=0, updatedOpen=0;
 
     for(const g of closed){
-      const existing=findExistingTradeByFillIds(g.fillIds);
-      const dt=new Date(g.exitTime);
-      const dk=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+      const dk=dateKeyFromMs(g.exitTime);
+      const existing=findExistingHyperliquidTrade(g,dk);
       const netPnl=parseFloat((g.priceP_L-g.fees).toFixed(2));
+      const autoNote=`Auto-synced from Hyperliquid · ${g.direction.toUpperCase()} · Entry ${new Date(g.entryTime).toLocaleString()} · Exit ${new Date(g.exitTime).toLocaleString()}`;
 
       if(existing){
         const t=existing.trade;
@@ -1883,6 +1976,8 @@ async function syncHyperliquid(){
         t.hl_fill_ids=g.fillIds;
         t.partial_exits=g.partial_exits||[];
         t.source='hyperliquid';
+        t.bias=g.direction==='long'?'Bullish':'Bearish';
+        if(!t.notes || /^Position OPEN/i.test(t.notes))t.notes=autoNote;
         if(existing.dk!==dk){
           data[existing.dk].trades.splice(existing.idx,1);
           if(!data[existing.dk].trades.length)delete data[existing.dk];
@@ -1900,7 +1995,7 @@ async function syncHyperliquid(){
           result:netPnl>0?'Win':netPnl<0?'Loss':'Breakeven',
           bias:g.direction==='long'?'Bullish':'Bearish',
           setup:'',plan:'',
-          notes:`Auto-synced from Hyperliquid · ${g.direction.toUpperCase()} · Entry ${new Date(g.entryTime).toLocaleString()} · Exit ${new Date(g.exitTime).toLocaleString()}`,
+          notes:autoNote,
           tags:[],screenshots:[],youtube:'',
           source:'hyperliquid',
           fees:parseFloat(g.fees.toFixed(2)),
@@ -1919,18 +2014,22 @@ async function syncHyperliquid(){
     }
 
     for(const g of open){
-      const existing=findExistingTradeByFillIds(g.fillIds);
-      const dt=new Date(g.entryTime);
-      const dk=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+      const dk=dateKeyFromMs(g.entryTime);
+      const existing=findExistingHyperliquidTrade(g,dk);
 
       if(existing){
         const t=existing.trade;
         t.size=parseFloat(g.size.toFixed(8));
         t.entry_price=parseFloat(g.entryPrice.toFixed(8));
+        t.exit_price=g.exitPrice?parseFloat(g.exitPrice.toFixed(8)):null;
         t.fees=parseFloat(g.fees.toFixed(2));
         t.hl_fill_ids=g.fillIds;
         t.partial_exits=g.partial_exits||[];
         t.source='hyperliquid';
+        t.result='Open';
+        t.pnl=0;
+        t.bias=g.direction==='long'?'Bullish':'Bearish';
+        if(!t.notes)t.notes=`Position OPEN — ${g.direction.toUpperCase()} ${g.coin} · Entry ${new Date(g.entryTime).toLocaleString()} · Sync after close for final numbers.`;
         await cloudUpsertTrade(existing.dk,t);
         updatedOpen++;
       } else {
