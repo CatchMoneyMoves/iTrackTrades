@@ -2023,7 +2023,7 @@ async function syncHyperliquid(){
     console.log('GROUPED OPEN TRADES:',JSON.stringify(_diagGrouped.open,null,2));
     _diagGrouped.closed.filter(g=>g.coin==='ETH'&&g.exitTime>=actionCutoffMs).forEach((g,i)=>{
       const dk=dateKeyFromMs(g.exitTime);
-      const existing=findExistingHlTradeForGroup(g,dk,true);
+      const existing=findExistingTradeByFillIds(g.fillIds);
       console.log(`ETH actionable closed trade #${i} — fillIds:`,g.fillIds);
       console.log(`  → existing match in journal:`,existing?{dk:existing.dk,idx:existing.idx,matchType:existing.matchType,trade_id:existing.trade.id,trade_pnl:existing.trade.pnl,trade_fill_ids:existing.trade.hl_fill_ids}:'NONE');
     });
@@ -2074,11 +2074,6 @@ async function syncHyperliquid(){
         await cloudUpsertTrade(dk,t);
         updatedClosed++;
       } else {
-        if(hasSameDayHlTrade(g.coin,dk)){
-          skippedClosed++;
-          console.warn('Skipped creating ambiguous same-day HL closed trade',g.coin,dk,g);
-          continue;
-        }
         const trade={
           id:g.fillIds[0],
           pair:g.coin,
