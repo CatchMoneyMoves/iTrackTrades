@@ -109,6 +109,14 @@ a{color:#a78bfa;text-decoration:none}
 .hstat{text-align:center}
 .hstat-val{font-size:0.95rem;font-weight:700}
 .hstat-lbl{font-size:0.58rem;color:#475569;text-transform:uppercase;letter-spacing:1px}
+.pnl-filter-wrap{position:relative;display:inline-block}
+.pnl-filter-btn{background:none;border:none;cursor:pointer;text-align:center;padding:0}
+.pnl-filter-btn:hover .hstat-val{opacity:0.8}
+.pnl-filter-dropdown{position:absolute;top:calc(100% + 6px);right:0;background:#13131a;border:1px solid #2d2d3d;border-radius:9px;min-width:130px;z-index:400;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.5)}
+.pnl-filter-dropdown.hidden{display:none}
+.pnl-filter-option{padding:9px 14px;font-size:0.75rem;color:#94a3b8;cursor:pointer;white-space:nowrap;transition:background 0.12s}
+.pnl-filter-option:hover{background:#1e1e2e;color:#e2e8f0}
+.pnl-filter-option.active{color:#a78bfa;background:#1a1228}
 .page{flex:1;overflow:hidden;display:none;flex-direction:column}
 .page.active{display:flex}
 .cal-header{padding:12px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;border-bottom:1px solid #1e1e2e}
@@ -364,7 +372,17 @@ a{color:#a78bfa;text-decoration:none}
     <div class="header-stats">
       <div class="hstat"><div class="hstat-val purple" id="hs-trades">0</div><div class="hstat-lbl">Trades</div></div>
       <div class="hstat"><div class="hstat-val neutral" id="hs-wr">—</div><div class="hstat-lbl">Win Rate</div></div>
-      <div class="hstat"><div class="hstat-val muted" id="hs-pnl">$0</div><div class="hstat-lbl">All-time P&L</div></div>
+      <div class="hstat pnl-filter-wrap" id="pnl-filter-wrap">
+        <button class="pnl-filter-btn" onclick="togglePnlDropdown(event)">
+          <div class="hstat-val muted" id="hs-pnl">$0</div>
+          <div class="hstat-lbl" id="hs-pnl-lbl">THIS MONTH ▾</div>
+        </button>
+        <div class="pnl-filter-dropdown hidden" id="pnl-filter-dropdown">
+          <div class="pnl-filter-option active" onclick="setPnlFilter('month',this)">This Month</div>
+          <div class="pnl-filter-option" onclick="setPnlFilter('90d',this)">Last 90 Days</div>
+          <div class="pnl-filter-option" onclick="setPnlFilter('all',this)">All-Time</div>
+        </div>
+      </div>
       <div class="hstat" onclick="editStartingBalance()" style="cursor:pointer" title="Click to anchor HL Balance to your current actual amount"><div class="hstat-val" id="hs-balance">$0</div><div class="hstat-lbl">HL Balance</div></div>
     </div>
   </div>
@@ -469,9 +487,8 @@ let startingBalance=0;
 let hlWallet='';
 let hlLastSync=0;
 let hlSyncing=false;
+let pnlFilterMode='month';
 const HL_DEXES=['','xyz'];
-// Protect older finalized Hyperliquid trades from being recalculated by future syncs.
-// May 15-20 numbers are already confirmed manually. Sync may still create/update May 27 and future trades.
 const HL_WRITE_LOCK_BEFORE_DK='2026-05-15';
 
 const SETUPS=['Break & Retest','Candle Breakout','Bounce','N/A'];
@@ -791,6 +808,7 @@ async function init(){
   initSidebar();
   restoreSidebarWidth();
   renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();renderHlStatus();
+  document.addEventListener('click',()=>{const dd=document.getElementById('pnl-filter-dropdown');if(dd)dd.classList.add('hidden');});
   document.addEventListener('keydown',e=>{
     if(e.key==='Escape'){closeModalDirect();closeDetailDirect();closeLightbox();return;}
     const lb=document.getElementById('lightbox');
@@ -919,8 +937,9 @@ function changeMonth(dir){
   if(currentMonth>11){currentMonth=0;currentYear++;}
   if(currentMonth<0){currentMonth=11;currentYear--;}
   renderCalendar();
+  if(pnlFilterMode==='month')updateStats();
 }
-function goToday(){const n=new Date();currentYear=n.getFullYear();currentMonth=n.getMonth();renderCalendar();}
+function goToday(){const n=new Date();currentYear=n.getFullYear();currentMonth=n.getMonth();renderCalendar();if(pnlFilterMode==='month')updateStats();}
 
 function renderCalendar(){
   const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -1595,17 +1614,63 @@ function closeLightboxBg(e){
 }
 function closeLightbox(){document.getElementById('lightbox').classList.remove('open');}
 
+function calcFilteredPnl(){
+  if(pnlFilterMode==='month'){
+    const y=currentYear,m=currentMonth;
+    return Object.entries(data).flatMap(([dk,dd])=>{
+      const d=new Date(dk+'T12:00:00');
+      return(d.getFullYear()===y&&d.getMonth()===m)?(dd.trades||[]):[];
+    }).reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+  }
+  if(pnlFilterMode==='90d'){
+    const cutoff=new Date(Date.now()-90*24*60*60*1000);
+    return Object.entries(data).flatMap(([dk,dd])=>{
+      return(new Date(dk+'T12:00:00')>=cutoff)?(dd.trades||[]):[];
+    }).reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+  }
+  return Object.values(data).flatMap(d=>d.trades||[]).reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+}
+
+function getPnlLabel(){
+  const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  if(pnlFilterMode==='month')return `${months[currentMonth].toUpperCase()} ${currentYear} ▾`;
+  if(pnlFilterMode==='90d')return 'LAST 90 DAYS ▾';
+  return 'ALL-TIME ▾';
+}
+
+function togglePnlDropdown(e){
+  e.stopPropagation();
+  const dd=document.getElementById('pnl-filter-dropdown');
+  if(dd)dd.classList.toggle('hidden');
+}
+
+function setPnlFilter(mode,el){
+  pnlFilterMode=mode;
+  const dd=document.getElementById('pnl-filter-dropdown');
+  if(dd){
+    dd.querySelectorAll('.pnl-filter-option').forEach(o=>o.classList.remove('active'));
+    if(el)el.classList.add('active');
+    dd.classList.add('hidden');
+  }
+  updateStats();
+}
+
 function updateStats(){
   const all=Object.values(data).flatMap(d=>d.trades||[]);
-  const totalPnl=all.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+  const filteredPnl=calcFilteredPnl();
   const hlPnl=all.filter(t=>t.source==='hyperliquid').reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
   const wins=all.filter(t=>t.result==='Win').length;
   const wr=all.length?Math.round(wins/all.length*100):null;
   document.getElementById('hs-trades').textContent=all.length;
   document.getElementById('hs-wr').textContent=wr!==null?wr+'%':'—';
   document.getElementById('hs-wr').style.color='#94a3b8';
-  document.getElementById('hs-pnl').textContent=pnlStr(totalPnl);
-  document.getElementById('hs-pnl').style.color=totalPnl>0?'#4ade80':totalPnl<0?'#f87171':'#64748b';
+  const pnlEl=document.getElementById('hs-pnl');
+  const pnlLbl=document.getElementById('hs-pnl-lbl');
+  if(pnlEl){
+    pnlEl.textContent=pnlStr(filteredPnl);
+    pnlEl.style.color=filteredPnl>0?'#4ade80':filteredPnl<0?'#f87171':'#64748b';
+  }
+  if(pnlLbl)pnlLbl.textContent=getPnlLabel();
   const hlBalance=startingBalance+hlPnl;
   const balEl=document.getElementById('hs-balance');
   if(balEl){
@@ -1700,8 +1765,6 @@ async function hlInfoRequest(payload,dex){
 }
 
 async function fetchHyperliquidFills(wallet,dex){
-  // Use unaggregated fills so scaled exits can be rebuilt accurately.
-  // We dedupe across dex calls before grouping because some fills can appear in more than one response.
   const fills=await hlInfoRequest({type:'userFills',user:wallet,aggregateByTime:false},dex);
   if(!Array.isArray(fills))throw new Error('Unexpected response shape from Hyperliquid');
   return fills;
@@ -1719,7 +1782,6 @@ async function fetchHyperliquidState(wallet,dex){
   return positions;
 }
 
-
 function dateKeyFromMs(ms){
   const dt=new Date(ms);
   return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
@@ -1734,27 +1796,19 @@ function dedupeHyperliquidFills(fills){
   const out=[];
   (fills||[]).forEach(f=>{
     if(!f||!f.coin||f.time==null)return;
-    // Ignore internal/system assets like @156 that can appear in some HL responses.
     if(String(f.coin).startsWith('@'))return;
     const tid=f.tid!=null?String(f.tid):'';
     const sz=parseFloat(f.sz)||0;
     const px=parseFloat(f.px)||0;
     if(!f.side||!sz||!px)return;
-    // tid 0/non-real ids can appear from non-trade/system rows and should not create journal trades.
     if(!tid||tid==='0'||tid==='undefined'||tid==='null')return;
-
-    // First dedupe by exact tid when possible.
     const tidKey='tid:'+tid;
     if(seen.has(tidKey))return;
-
-    // Hyperliquid main + HIP-3 dex calls can return the same economic fill with different tids.
-    // Dedupe by the full economic fingerprint too, otherwise P&L and fees get doubled.
     const econKey=[
       'econ', f.coin, f.side, String(f.time),
       String(f.px), String(f.sz), String(f.closedPnl||0), String(f.fee||0), String(f.startPosition||0)
     ].join('|');
     if(seen.has(econKey))return;
-
     seen.add(tidKey);
     seen.add(econKey);
     out.push(f);
@@ -1772,30 +1826,22 @@ function findExistingHlTradeForGroup(group,dk,allowFallback){
   const exact=findExistingTradeByFillIds(group.fillIds||[]);
   if(exact)return {...exact,matchType:'fillIds'};
   if(!allowFallback)return null;
-
   const sameDay=((data[dk]||{}).trades||[])
     .map((trade,idx)=>({dk,idx,trade}))
     .filter(x=>x.trade&&x.trade.source==='hyperliquid'&&x.trade.pair===group.coin);
-
   if(!sameDay.length)return null;
-
-  // If there is exactly one same-day same-coin HL entry, it is usually the OPEN draft
-  // or the previous final-fill-only bad entry. Updating it avoids duplicates.
   if(sameDay.length===1)return {...sameDay[0],matchType:'same-day-single'};
-
   const openDrafts=sameDay.filter(x=>
     x.trade.result==='Open'||
     x.trade.is_draft===true||
     String(x.trade.notes||'').includes('Position OPEN')
   );
   if(openDrafts.length===1)return {...openDrafts[0],matchType:'same-day-open-draft'};
-
   const finalOnly=sameDay.filter(x=>
     ((x.trade.partial_exits||[]).length===0)&&
     ((x.trade.hl_fill_ids||[]).length<=2)
   );
   if(finalOnly.length===1)return {...finalOnly[0],matchType:'same-day-final-only'};
-
   console.warn('HL sync skipped ambiguous same-day match',group.coin,dk,sameDay.map(x=>({
     id:x.trade.id,pnl:x.trade.pnl,fillIds:x.trade.hl_fill_ids,result:x.trade.result,is_draft:x.trade.is_draft
   })));
@@ -1805,7 +1851,6 @@ function findExistingHlTradeForGroup(group,dk,allowFallback){
 function hasSameDayHlTrade(pair,dk){
   return (((data[dk]||{}).trades||[]).some(t=>t&&t.source==='hyperliquid'&&t.pair===pair));
 }
-
 
 function groupFillsIntoTrades(fills,openPositions){
   openPositions=openPositions||{};
@@ -1818,12 +1863,6 @@ function groupFillsIntoTrades(fills,openPositions){
   const closed=[];
   const open=[];
   for(const coin in byCoin){
-    // Sort by time, then by execution order within same-time ties.
-    // Hyperliquid returns batched same-timestamp fills in arbitrary order, so we reconstruct
-    // execution order from startPosition. Chain rule: next fill's startPos = previous fill's endPos.
-    //   - Extending fills (open/add): |startPos| ascending — flat-to-position first.
-    //   - Reducing fills (close/trim): |startPos| descending — biggest cut first, fill hitting 0 last.
-    //   - Within a same-time batch, extending fills come before reducing fills.
     const sorted=byCoin[coin].slice().sort((a,b)=>{
       const t=(a.time||0)-(b.time||0);
       if(t!==0)return t;
@@ -1844,11 +1883,7 @@ function groupFillsIntoTrades(fills,openPositions){
       const cp=parseFloat(f.closedPnl)||0;
       const startPos=parseFloat(f.startPosition)||0;
       const signedDelta=(f.side==='B'?sz:-sz);
-
       if(!trade){
-        // Start only from a true flat-to-position open. With proper sort, this is the first fill
-        // in a sequence. Mid-position fills (startPos != 0 with no active trade) mean the sequence
-        // started before our window — skip them rather than fabricate a bad cost basis.
         if(Math.abs(startPos)>1e-9)continue;
         const dirSign=signedDelta>0?1:-1;
         trade={
@@ -1887,10 +1922,6 @@ function groupFillsIntoTrades(fills,openPositions){
           });
         }
       }
-
-      // Close the trade when our OWN tracked position nets to zero, NOT when this single fill's
-      // endPos is zero. An intermediate partial close can transiently bring endPos to 0 while the
-      // trade is still open — that was the source of the -$0.79 and -$16.20 bugs.
       const tradeNetSize=trade.openSize-trade.closeSize;
       if(Math.abs(tradeNetSize)<1e-9){
         trade.entryPrice=trade.openSize>0?trade.openNotional/trade.openSize:0;
@@ -1950,9 +1981,7 @@ async function syncHyperliquid(){
         console.warn(`HL fetch failed for dex='${dex||'main'}':`,err);
       }
     }
-
     fills=dedupeHyperliquidFills(fills);
-
     const HL_HISTORY_FLOOR_MS=new Date('2026-05-15T00:00:00').getTime();
     const HL_ACTION_LOOKBACK_MS=30*24*60*60*1000;
     const nowMs=Date.now();
@@ -1960,9 +1989,6 @@ async function syncHyperliquid(){
       HL_HISTORY_FLOOR_MS,
       Math.min(nowMs-HL_ACTION_LOOKBACK_MS,(hlLastSync?hlLastSync-HL_ACTION_LOOKBACK_MS:nowMs-HL_ACTION_LOOKBACK_MS))
     );
-
-    // Group from the historical floor so a position opened before the action window can still close correctly,
-    // but only write/update trades whose close/open event is inside the action window.
     const workingFills=HL_HISTORY_FLOOR_MS?fills.filter(f=>f.time>=HL_HISTORY_FLOOR_MS):fills;
 
     console.log('========== HL SYNC DIAGNOSTIC ==========');
@@ -1991,13 +2017,11 @@ async function syncHyperliquid(){
     }
 
     const {closed,open}=groupFillsIntoTrades(workingFills,openPositions);
-
     let createdClosed=0, updatedClosed=0, skippedClosed=0;
     let createdOpen=0, updatedOpen=0, skippedOpen=0;
 
     for(const g of closed){
       if(g.exitTime<actionCutoffMs)continue;
-
       const dk=dateKeyFromMs(g.exitTime);
       if(isHlWriteLockedDk(dk)){
         skippedClosed++;
@@ -2006,7 +2030,6 @@ async function syncHyperliquid(){
       }
       const existing=findExistingHlTradeForGroup(g,dk,true);
       const netPnl=parseFloat((g.priceP_L-g.fees).toFixed(2));
-
       if(existing){
         const t=existing.trade;
         t.pnl=netPnl;
@@ -2028,7 +2051,6 @@ async function syncHyperliquid(){
         await cloudUpsertTrade(dk,t);
         updatedClosed++;
       } else {
-        // If a same-day same-coin HL trade exists but matching is ambiguous, skip to avoid duplicates.
         if(hasSameDayHlTrade(g.coin,dk)){
           skippedClosed++;
           console.warn('Skipped creating ambiguous same-day HL closed trade',g.coin,dk,g);
@@ -2064,14 +2086,12 @@ async function syncHyperliquid(){
       const dk=dateKeyFromMs(g.entryTime);
       const existing=findExistingTradeByFillIds(g.fillIds);
       const isActionable=(g.entryTime>=actionCutoffMs)||!!existing;
-
       if(!isActionable)continue;
       if(isHlWriteLockedDk(dk) && !existing){
         skippedOpen++;
         console.log('HL sync protected historical open trade from creation',g.coin,dk,g);
         continue;
       }
-
       if(existing){
         const t=existing.trade;
         t.size=parseFloat(g.size.toFixed(8));
