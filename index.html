@@ -1862,68 +1862,89 @@ function groupFillsIntoTrades(fills,openPositions){
   });
   const closed=[];
   const open=[];
+
+  // Group fills by coin AND oid (order id). Each oid is one logical order from HL —
+  // an open with scale-in, or a close with scale-out. We then chain consecutive
+  // orders on the same coin into a single trade: opening orders extend the trade,
+  // closing orders reduce it, trade closes when net size returns to zero.
   for(const coin in byCoin){
-    const sorted=byCoin[coin].slice().sort((a,b)=>{
-      const t=(a.time||0)-(b.time||0);
-      if(t!==0)return t;
-      const aStart=parseFloat(a.startPosition)||0;
-      const bStart=parseFloat(b.startPosition)||0;
-      const aDelta=(a.side==='B'?1:-1)*(parseFloat(a.sz)||0);
-      const bDelta=(b.side==='B'?1:-1)*(parseFloat(b.sz)||0);
-      const aExtends=Math.abs(aStart)<1e-9 || (aStart*aDelta>0);
-      const bExtends=Math.abs(bStart)<1e-9 || (bStart*bDelta>0);
-      if(aExtends!==bExtends)return aExtends?-1:1;
-      return aExtends?(Math.abs(aStart)-Math.abs(bStart)):(Math.abs(bStart)-Math.abs(aStart));
+    // Bucket fills by oid, preserving fill order per-oid
+    const ordersByOid={};
+    byCoin[coin].forEach(f=>{
+      const oid=String(f.oid||'noid');
+      if(!ordersByOid[oid])ordersByOid[oid]={oid,coin,fills:[],firstTime:f.time,lastTime:f.time};
+      ordersByOid[oid].fills.push(f);
+      if(f.time<ordersByOid[oid].firstTime)ordersByOid[oid].firstTime=f.time;
+      if(f.time>ordersByOid[oid].lastTime)ordersByOid[oid].lastTime=f.time;
     });
+    // Sort orders chronologically by their first fill
+    const orders=Object.values(ordersByOid).sort((a,b)=>a.firstTime-b.firstTime);
+
     let trade=null;
-    for(const f of sorted){
-      const sz=parseFloat(f.sz)||0;
-      const px=parseFloat(f.px)||0;
-      const fee=parseFloat(f.fee)||0;
-      const cp=parseFloat(f.closedPnl)||0;
-      const startPos=parseFloat(f.startPosition)||0;
-      const signedDelta=(f.side==='B'?sz:-sz);
+    for(const order of orders){
+      // Sum up this order: signed size, fees, realized pnl, weighted avg price
+      let orderSignedSize=0, orderAbsSize=0, orderNotional=0, orderFees=0, orderPnl=0;
+      const fillIds=[];
+      for(const f of order.fills){
+        const sz=parseFloat(f.sz)||0;
+        const px=parseFloat(f.px)||0;
+        const fee=parseFloat(f.fee)||0;
+        const cp=parseFloat(f.closedPnl)||0;
+        const signed=(f.side==='B'?sz:-sz);
+        orderSignedSize+=signed;
+        orderAbsSize+=sz;
+        orderNotional+=sz*px;
+        orderFees+=fee;
+        orderPnl+=cp;
+        if(f.tid!=null)fillIds.push(String(f.tid));
+      }
+      if(orderAbsSize<1e-9)continue;
+      const orderAvgPrice=orderNotional/orderAbsSize;
+
       if(!trade){
-        if(Math.abs(startPos)>1e-9)continue;
-        const dirSign=signedDelta>0?1:-1;
+        // Starting a new trade. Direction = direction of this order.
+        const dirSign=orderSignedSize>0?1:-1;
         trade={
           coin,
           direction:dirSign>0?'long':'short',
           dirSign,
-          priceP_L:cp,
-          fees:fee,
-          fillIds:[String(f.tid)],
-          entryTime:f.time,
-          exitTime:f.time,
-          openSize:sz,
-          openNotional:sz*px,
+          priceP_L:orderPnl,
+          fees:orderFees,
+          fillIds:[...fillIds],
+          entryTime:order.firstTime,
+          exitTime:order.lastTime,
+          openSize:orderAbsSize,
+          openNotional:orderNotional,
           closeSize:0,
           closeNotional:0,
           partial_exits:[]
         };
       } else {
-        trade.fees+=fee;
-        trade.priceP_L+=cp;
-        if(!trade.fillIds.includes(String(f.tid)))trade.fillIds.push(String(f.tid));
-        trade.exitTime=f.time;
-        const fillDirMatchesTrade=(trade.dirSign>0 && signedDelta>0)||(trade.dirSign<0 && signedDelta<0);
-        if(fillDirMatchesTrade){
-          trade.openSize+=sz;
-          trade.openNotional+=sz*px;
+        // Adding to an existing trade. Is this order extending or reducing?
+        const orderExtends=(trade.dirSign>0 && orderSignedSize>0)||(trade.dirSign<0 && orderSignedSize<0);
+        trade.fees+=orderFees;
+        trade.priceP_L+=orderPnl;
+        fillIds.forEach(id=>{if(!trade.fillIds.includes(id))trade.fillIds.push(id);});
+        trade.exitTime=order.lastTime;
+        if(orderExtends){
+          trade.openSize+=orderAbsSize;
+          trade.openNotional+=orderNotional;
         } else {
-          trade.closeSize+=sz;
-          trade.closeNotional+=sz*px;
+          trade.closeSize+=orderAbsSize;
+          trade.closeNotional+=orderNotional;
           trade.partial_exits.push({
-            price:px,
-            size:sz,
-            time:f.time,
-            pnl:parseFloat(cp.toFixed(2)),
-            fee:parseFloat(fee.toFixed(4))
+            price:orderAvgPrice,
+            size:orderAbsSize,
+            time:order.lastTime,
+            pnl:parseFloat(orderPnl.toFixed(2)),
+            fee:parseFloat(orderFees.toFixed(4))
           });
         }
       }
+
+      // Did this order close the position?
       const tradeNetSize=trade.openSize-trade.closeSize;
-      if(Math.abs(tradeNetSize)<1e-9){
+      if(Math.abs(tradeNetSize)<1e-6){
         trade.entryPrice=trade.openSize>0?trade.openNotional/trade.openSize:0;
         trade.exitPrice=trade.closeSize>0?trade.closeNotional/trade.closeSize:0;
         trade.size=trade.openSize;
@@ -1931,6 +1952,8 @@ function groupFillsIntoTrades(fills,openPositions){
         trade=null;
       }
     }
+
+    // Leftover unclosed trade — only keep if HL confirms an open position
     if(trade && openPositions[coin]!==undefined){
       trade.entryPrice=trade.openSize>0?trade.openNotional/trade.openSize:0;
       trade.exitPrice=0;
