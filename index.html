@@ -117,6 +117,15 @@ a{color:#a78bfa;text-decoration:none}
 .pnl-filter-option{padding:9px 14px;font-size:0.75rem;color:#94a3b8;cursor:pointer;white-space:nowrap;transition:background 0.12s}
 .pnl-filter-option:hover{background:#1e1e2e;color:#e2e8f0}
 .pnl-filter-option.active{color:#a78bfa;background:#1a1228}
+.privacy-toggle{background:#1e1e2e;border:1px solid #2d2d3d;color:#94a3b8;border-radius:8px;width:36px;height:36px;cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;align-self:center;margin-left:6px;transition:all 0.15s;padding:0;line-height:1}
+.privacy-toggle:hover{background:#2d2d3d;color:#a78bfa;border-color:#a78bfa}
+.privacy-toggle.active{background:#3b1f6e;color:#a78bfa;border-color:#a78bfa}
+body.privacy .tc-fees,
+body.privacy .tc-size,
+body.privacy .tc-prices{visibility:hidden;position:relative}
+body.privacy .tc-fees::after,
+body.privacy .tc-size::after,
+body.privacy .tc-prices::after{content:'••••';visibility:visible;position:absolute;left:0;top:0;color:#475569;font-family:ui-monospace,monospace}
 .page{flex:1;overflow:hidden;display:none;flex-direction:column}
 .page.active{display:flex}
 .cal-header{padding:12px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;border-bottom:1px solid #1e1e2e}
@@ -384,6 +393,7 @@ a{color:#a78bfa;text-decoration:none}
         </div>
       </div>
       <div class="hstat" onclick="editStartingBalance()" style="cursor:pointer" title="Click to anchor HL Balance to your current actual amount"><div class="hstat-val" id="hs-balance">$0</div><div class="hstat-lbl">HL Balance</div></div>
+      <button class="privacy-toggle" id="privacy-toggle" onclick="togglePrivacy()" title="Hide/show amounts (Ctrl+H)">👁</button>
     </div>
   </div>
 
@@ -488,6 +498,7 @@ let hlWallet='';
 let hlLastSync=0;
 let hlSyncing=false;
 let pnlFilterMode='month';
+let privacyMode=false;
 const HL_DEXES=['','xyz'];
 const HL_WRITE_LOCK_BEFORE_DK='2026-05-15';
 
@@ -638,7 +649,7 @@ async function cloudDeleteAllTrades(){
 }
 
 function autoResult(pnl){return pnl>0?'Win':pnl<0?'Loss':'Breakeven';}
-function pnlStr(val){const v=parseFloat(val)||0;return v>=0?`+$${v.toFixed(2)}`:`-$${Math.abs(v).toFixed(2)}`;}
+function pnlStr(val){if(privacyMode)return '••••';const v=parseFloat(val)||0;return v>=0?`+$${v.toFixed(2)}`:`-$${Math.abs(v).toFixed(2)}`;}
 function pnlClass(val){return parseFloat(val)>=0?'green':'red';}
 
 function fmtPrice(p){
@@ -807,10 +818,18 @@ async function init(){
   qYear=now.getFullYear();
   initSidebar();
   restoreSidebarWidth();
+  // Restore privacy state
+  privacyMode=localStorage.getItem('tj2_privacy')==='1';
+  if(privacyMode){
+    document.body.classList.add('privacy');
+    const btn=document.getElementById('privacy-toggle');
+    if(btn){btn.textContent='🙈';btn.classList.add('active');}
+  }
   renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();renderHlStatus();
   document.addEventListener('click',()=>{const dd=document.getElementById('pnl-filter-dropdown');if(dd)dd.classList.add('hidden');});
   document.addEventListener('keydown',e=>{
     if(e.key==='Escape'){closeModalDirect();closeDetailDirect();closeLightbox();return;}
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='h'){e.preventDefault();togglePrivacy();return;}
     const lb=document.getElementById('lightbox');
     if(lb && lb.classList.contains('open')){
       if(e.key==='ArrowLeft'){e.preventDefault();lbPrev();}
@@ -1638,6 +1657,31 @@ function getPnlLabel(){
   return 'ALL-TIME ▾';
 }
 
+function togglePrivacy(){
+  privacyMode=!privacyMode;
+  safeSetItem('tj2_privacy',privacyMode?'1':'0');
+  document.body.classList.toggle('privacy',privacyMode);
+  const btn=document.getElementById('privacy-toggle');
+  if(btn){
+    btn.textContent=privacyMode?'🙈':'👁';
+    btn.classList.toggle('active',privacyMode);
+  }
+  renderCalendar();
+  renderQuarterlyOverview();
+  updateStats();
+  if(document.getElementById('overlay').classList.contains('open')){
+    renderDaySummary();
+    renderLoggedTrades();
+  }
+  if(document.getElementById('detail-overlay').classList.contains('open')&&editingDk!=null&&editingIdx!=null){
+    openTradeDetail(editingDk,editingIdx);
+  }
+  if(document.getElementById('page-qdetail').classList.contains('active')){
+    renderQdTrades();
+  }
+  if(pnlChart){renderPnlChart();}
+}
+
 function togglePnlDropdown(e){
   e.stopPropagation();
   const dd=document.getElementById('pnl-filter-dropdown');
@@ -1674,11 +1718,16 @@ function updateStats(){
   const hlBalance=startingBalance+hlPnl;
   const balEl=document.getElementById('hs-balance');
   if(balEl){
-    balEl.textContent=(hlBalance<0?'-$':'$')+Math.abs(hlBalance).toFixed(2);
-    if(startingBalance===0&&hlPnl===0){
+    if(privacyMode){
+      balEl.textContent='••••';
       balEl.style.color='#94a3b8';
     } else {
-      balEl.style.color=hlBalance>=0?'#4ade80':'#f87171';
+      balEl.textContent=(hlBalance<0?'-$':'$')+Math.abs(hlBalance).toFixed(2);
+      if(startingBalance===0&&hlPnl===0){
+        balEl.style.color='#94a3b8';
+      } else {
+        balEl.style.color=hlBalance>=0?'#4ade80':'#f87171';
+      }
     }
     const parentEl=balEl.closest('.hstat');
     if(parentEl){
