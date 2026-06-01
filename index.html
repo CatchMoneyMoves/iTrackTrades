@@ -1862,89 +1862,68 @@ function groupFillsIntoTrades(fills,openPositions){
   });
   const closed=[];
   const open=[];
-
-  // Group fills by coin AND oid (order id). Each oid is one logical order from HL —
-  // an open with scale-in, or a close with scale-out. We then chain consecutive
-  // orders on the same coin into a single trade: opening orders extend the trade,
-  // closing orders reduce it, trade closes when net size returns to zero.
   for(const coin in byCoin){
-    // Bucket fills by oid, preserving fill order per-oid
-    const ordersByOid={};
-    byCoin[coin].forEach(f=>{
-      const oid=String(f.oid||'noid');
-      if(!ordersByOid[oid])ordersByOid[oid]={oid,coin,fills:[],firstTime:f.time,lastTime:f.time};
-      ordersByOid[oid].fills.push(f);
-      if(f.time<ordersByOid[oid].firstTime)ordersByOid[oid].firstTime=f.time;
-      if(f.time>ordersByOid[oid].lastTime)ordersByOid[oid].lastTime=f.time;
+    const sorted=byCoin[coin].slice().sort((a,b)=>{
+      const t=(a.time||0)-(b.time||0);
+      if(t!==0)return t;
+      const aStart=parseFloat(a.startPosition)||0;
+      const bStart=parseFloat(b.startPosition)||0;
+      const aDelta=(a.side==='B'?1:-1)*(parseFloat(a.sz)||0);
+      const bDelta=(b.side==='B'?1:-1)*(parseFloat(b.sz)||0);
+      const aExtends=Math.abs(aStart)<1e-9 || (aStart*aDelta>0);
+      const bExtends=Math.abs(bStart)<1e-9 || (bStart*bDelta>0);
+      if(aExtends!==bExtends)return aExtends?-1:1;
+      return aExtends?(Math.abs(aStart)-Math.abs(bStart)):(Math.abs(bStart)-Math.abs(aStart));
     });
-    // Sort orders chronologically by their first fill
-    const orders=Object.values(ordersByOid).sort((a,b)=>a.firstTime-b.firstTime);
-
     let trade=null;
-    for(const order of orders){
-      // Sum up this order: signed size, fees, realized pnl, weighted avg price
-      let orderSignedSize=0, orderAbsSize=0, orderNotional=0, orderFees=0, orderPnl=0;
-      const fillIds=[];
-      for(const f of order.fills){
-        const sz=parseFloat(f.sz)||0;
-        const px=parseFloat(f.px)||0;
-        const fee=parseFloat(f.fee)||0;
-        const cp=parseFloat(f.closedPnl)||0;
-        const signed=(f.side==='B'?sz:-sz);
-        orderSignedSize+=signed;
-        orderAbsSize+=sz;
-        orderNotional+=sz*px;
-        orderFees+=fee;
-        orderPnl+=cp;
-        if(f.tid!=null)fillIds.push(String(f.tid));
-      }
-      if(orderAbsSize<1e-9)continue;
-      const orderAvgPrice=orderNotional/orderAbsSize;
-
+    for(const f of sorted){
+      const sz=parseFloat(f.sz)||0;
+      const px=parseFloat(f.px)||0;
+      const fee=parseFloat(f.fee)||0;
+      const cp=parseFloat(f.closedPnl)||0;
+      const startPos=parseFloat(f.startPosition)||0;
+      const signedDelta=(f.side==='B'?sz:-sz);
       if(!trade){
-        // Starting a new trade. Direction = direction of this order.
-        const dirSign=orderSignedSize>0?1:-1;
+        if(Math.abs(startPos)>1e-9)continue;
+        const dirSign=signedDelta>0?1:-1;
         trade={
           coin,
           direction:dirSign>0?'long':'short',
           dirSign,
-          priceP_L:orderPnl,
-          fees:orderFees,
-          fillIds:[...fillIds],
-          entryTime:order.firstTime,
-          exitTime:order.lastTime,
-          openSize:orderAbsSize,
-          openNotional:orderNotional,
+          priceP_L:cp,
+          fees:fee,
+          fillIds:[String(f.tid)],
+          entryTime:f.time,
+          exitTime:f.time,
+          openSize:sz,
+          openNotional:sz*px,
           closeSize:0,
           closeNotional:0,
           partial_exits:[]
         };
       } else {
-        // Adding to an existing trade. Is this order extending or reducing?
-        const orderExtends=(trade.dirSign>0 && orderSignedSize>0)||(trade.dirSign<0 && orderSignedSize<0);
-        trade.fees+=orderFees;
-        trade.priceP_L+=orderPnl;
-        fillIds.forEach(id=>{if(!trade.fillIds.includes(id))trade.fillIds.push(id);});
-        trade.exitTime=order.lastTime;
-        if(orderExtends){
-          trade.openSize+=orderAbsSize;
-          trade.openNotional+=orderNotional;
+        trade.fees+=fee;
+        trade.priceP_L+=cp;
+        if(!trade.fillIds.includes(String(f.tid)))trade.fillIds.push(String(f.tid));
+        trade.exitTime=f.time;
+        const fillDirMatchesTrade=(trade.dirSign>0 && signedDelta>0)||(trade.dirSign<0 && signedDelta<0);
+        if(fillDirMatchesTrade){
+          trade.openSize+=sz;
+          trade.openNotional+=sz*px;
         } else {
-          trade.closeSize+=orderAbsSize;
-          trade.closeNotional+=orderNotional;
+          trade.closeSize+=sz;
+          trade.closeNotional+=sz*px;
           trade.partial_exits.push({
-            price:orderAvgPrice,
-            size:orderAbsSize,
-            time:order.lastTime,
-            pnl:parseFloat(orderPnl.toFixed(2)),
-            fee:parseFloat(orderFees.toFixed(4))
+            price:px,
+            size:sz,
+            time:f.time,
+            pnl:parseFloat(cp.toFixed(2)),
+            fee:parseFloat(fee.toFixed(4))
           });
         }
       }
-
-      // Did this order close the position?
       const tradeNetSize=trade.openSize-trade.closeSize;
-      if(Math.abs(tradeNetSize)<1e-6){
+      if(Math.abs(tradeNetSize)<1e-9){
         trade.entryPrice=trade.openSize>0?trade.openNotional/trade.openSize:0;
         trade.exitPrice=trade.closeSize>0?trade.closeNotional/trade.closeSize:0;
         trade.size=trade.openSize;
@@ -1952,8 +1931,6 @@ function groupFillsIntoTrades(fills,openPositions){
         trade=null;
       }
     }
-
-    // Leftover unclosed trade — only keep if HL confirms an open position
     if(trade && openPositions[coin]!==undefined){
       trade.entryPrice=trade.openSize>0?trade.openNotional/trade.openSize:0;
       trade.exitPrice=0;
@@ -1999,7 +1976,6 @@ async function syncHyperliquid(){
         fills=fills.concat(dexFills);
         const dexPositions=await fetchHyperliquidState(hlWallet,dex);
         Object.assign(openPositions,dexPositions);
-        console.log(`HL sync · dex='${dex||'main'}' · ${dexFills.length} fills · ${Object.keys(dexPositions).length} open positions`);
       }catch(err){
         console.warn(`HL fetch failed for dex='${dex||'main'}':`,err);
       }
@@ -2014,22 +1990,6 @@ async function syncHyperliquid(){
     );
     const workingFills=HL_HISTORY_FLOOR_MS?fills.filter(f=>f.time>=HL_HISTORY_FLOOR_MS):fills;
 
-    console.log('========== HL SYNC DIAGNOSTIC ==========');
-    console.log('Action cutoff:',new Date(actionCutoffMs).toLocaleString(),'· Dedupe fills:',fills.length,'· Working fills:',workingFills.length);
-    const ethFills=workingFills.filter(f=>f.coin==='ETH');
-    console.log('ETH FILLS (deduped raw from HL):',JSON.stringify(ethFills,null,2));
-    const _diagGrouped=groupFillsIntoTrades(workingFills,openPositions);
-    console.log('GROUPED CLOSED TRADES:',JSON.stringify(_diagGrouped.closed,null,2));
-    console.log('GROUPED OPEN TRADES:',JSON.stringify(_diagGrouped.open,null,2));
-    _diagGrouped.closed.filter(g=>g.coin==='ETH'&&g.exitTime>=actionCutoffMs).forEach((g,i)=>{
-      const dk=dateKeyFromMs(g.exitTime);
-      const existing=findExistingTradeByFillIds(g.fillIds);
-      console.log(`ETH actionable closed trade #${i} — fillIds:`,g.fillIds);
-      console.log(`  → existing match in journal:`,existing?{dk:existing.dk,idx:existing.idx,matchType:existing.matchType,trade_id:existing.trade.id,trade_pnl:existing.trade.pnl,trade_fill_ids:existing.trade.hl_fill_ids}:'NONE');
-    });
-    console.log('JOURNAL ENTRIES on 2026-05-27:',JSON.stringify((data['2026-05-27']||{}).trades||[],null,2));
-    console.log('========================================');
-
     if(!workingFills.length){
       hlLastSync=Date.now();
       safeSetItem('tj2_hl_lastsync',String(hlLastSync));
@@ -2040,6 +2000,52 @@ async function syncHyperliquid(){
     }
 
     const {closed,open}=groupFillsIntoTrades(workingFills,openPositions);
+
+    // ===== STEP 1: Clean up stale merged Frankenstein records =====
+    // For each (coin, day) the grouper produced trades for, find existing
+    // journal records that contain fills from MORE than one current trade —
+    // those are merges from the old broken code. Delete them so we can
+    // recreate as clean separate trades.
+    const allActionable=[
+      ...closed.filter(g=>g.exitTime>=actionCutoffMs).map(g=>({...g,_dk:dateKeyFromMs(g.exitTime)})),
+      ...open.filter(g=>g.entryTime>=actionCutoffMs||findExistingTradeByFillIds(g.fillIds)).map(g=>({...g,_dk:dateKeyFromMs(g.entryTime)}))
+    ];
+    const byCoinDay={};
+    allActionable.forEach(g=>{
+      if(isHlWriteLockedDk(g._dk))return;
+      const k=g.coin+'|'+g._dk;
+      if(!byCoinDay[k])byCoinDay[k]={coin:g.coin,dk:g._dk,groups:[]};
+      byCoinDay[k].groups.push(g);
+    });
+    for(const k in byCoinDay){
+      const {coin,dk,groups}=byCoinDay[k];
+      const dayTrades=((data[dk]||{}).trades||[]);
+      const stale=[];
+      dayTrades.forEach((t,idx)=>{
+        if(!t||t.source!=='hyperliquid'||t.pair!==coin)return;
+        if(!t.hl_fill_ids||!t.hl_fill_ids.length)return;
+        // How many of our current grouper trades overlap with this record's fills?
+        const recordFills=new Set(t.hl_fill_ids.map(String));
+        let matchingGroups=0;
+        groups.forEach(g=>{
+          if(g.fillIds.some(id=>recordFills.has(String(id))))matchingGroups++;
+        });
+        // If record overlaps 2+ separate current trades, it's a stale merge
+        if(matchingGroups>1){
+          stale.push({idx,id:t.id});
+        }
+      });
+      // Delete stale records highest-index first
+      stale.sort((a,b)=>b.idx-a.idx);
+      for(const s of stale){
+        console.log('Cleaning up stale merged record:',s.id,'on',dk);
+        data[dk].trades.splice(s.idx,1);
+        if(!data[dk].trades.length)delete data[dk];
+        await cloudDeleteTrade(s.id);
+      }
+    }
+
+    // ===== STEP 2: Process trades with strict fill-id matching only =====
     let createdClosed=0, updatedClosed=0, skippedClosed=0;
     let createdOpen=0, updatedOpen=0, skippedOpen=0;
 
@@ -2048,10 +2054,9 @@ async function syncHyperliquid(){
       const dk=dateKeyFromMs(g.exitTime);
       if(isHlWriteLockedDk(dk)){
         skippedClosed++;
-        console.log('HL sync protected historical closed trade from recalculation',g.coin,dk,g);
         continue;
       }
-      const existing=findExistingHlTradeForGroup(g,dk,true);
+      const existing=findExistingTradeByFillIds(g.fillIds);
       const netPnl=parseFloat((g.priceP_L-g.fees).toFixed(2));
       if(existing){
         const t=existing.trade;
@@ -2107,7 +2112,6 @@ async function syncHyperliquid(){
       if(!isActionable)continue;
       if(isHlWriteLockedDk(dk) && !existing){
         skippedOpen++;
-        console.log('HL sync protected historical open trade from creation',g.coin,dk,g);
         continue;
       }
       if(existing){
@@ -2123,11 +2127,6 @@ async function syncHyperliquid(){
         await cloudUpsertTrade(existing.dk,t);
         updatedOpen++;
       } else {
-        if(hasSameDayHlTrade(g.coin,dk)){
-          skippedOpen++;
-          console.warn('Skipped creating ambiguous same-day HL open trade',g.coin,dk,g);
-          continue;
-        }
         const trade={
           id:g.fillIds[0],
           pair:g.coin,
