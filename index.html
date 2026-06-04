@@ -1752,10 +1752,8 @@ function updateStats(){
   const balEl=document.getElementById('hs-balance');
   if(balEl){
     if(privacyMode){
-      // Show % return on account instead of $ balance
-      const pctReturn=startingBalance>0?(hlPnl/startingBalance*100):0;
-      balEl.textContent=(pctReturn>=0?'+':'')+pctReturn.toFixed(2)+'%';
-      balEl.style.color=hlPnl>=0?'#4ade80':'#f87171';
+      balEl.textContent='••••';
+      balEl.style.color='#94a3b8';
     } else {
       balEl.textContent=(hlBalance<0?'-$':'$')+Math.abs(hlBalance).toFixed(2);
       if(startingBalance===0&&hlPnl===0){
