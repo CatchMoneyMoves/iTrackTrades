@@ -396,7 +396,7 @@ body.privacy .tc-prices::after{content:'••••';visibility:visible;positio
         </div>
       </div>
       <div class="hstat" onclick="editStartingBalance()" style="cursor:pointer" title="Click to anchor HL Balance to your current actual amount"><div class="hstat-val" id="hs-balance">$0</div><div class="hstat-lbl">HL Balance</div></div>
-      <button class="privacy-toggle" id="privacy-toggle" onclick="togglePrivacy()" title="Hide/show amounts (Ctrl+H)">👁</button>
+      <button class="privacy-toggle" id="privacy-toggle" onclick="togglePrivacy()" title="Toggle $ / % mode (Ctrl+H)">$</button>
     </div>
   </div>
 
@@ -662,7 +662,19 @@ async function cloudDeleteAllTrades(){
 }
 
 function autoResult(pnl){return pnl>0?'Win':pnl<0?'Loss':'Breakeven';}
-function pnlStr(val){if(privacyMode)return '••••';const v=parseFloat(val)||0;return v>=0?`+$${v.toFixed(2)}`:`-$${Math.abs(v).toFixed(2)}`;}
+function getAccountSize(){
+  const all=Object.values(data).flatMap(d=>d.trades||[]);
+  const hlPnl=all.filter(t=>t.source==='hyperliquid').reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+  return Math.abs(startingBalance+hlPnl)||Math.abs(startingBalance)||1;
+}
+function pnlStr(val){
+  const v=parseFloat(val)||0;
+  if(privacyMode){
+    const pct=v/getAccountSize()*100;
+    return pct>=0?`+${pct.toFixed(2)}%`:`-${Math.abs(pct).toFixed(2)}%`;
+  }
+  return v>=0?`+$${v.toFixed(2)}`:`-$${Math.abs(v).toFixed(2)}`;
+}
 function pnlClass(val){return parseFloat(val)>=0?'green':'red';}
 
 function fmtPrice(p){
@@ -836,7 +848,7 @@ async function init(){
   if(privacyMode){
     document.body.classList.add('privacy');
     const btn=document.getElementById('privacy-toggle');
-    if(btn){btn.textContent='🙈';btn.classList.add('active');}
+    if(btn){btn.textContent='%';btn.classList.add('active');}
   }
   renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();renderHlStatus();
   document.addEventListener('click',()=>{const dd=document.getElementById('pnl-filter-dropdown');if(dd)dd.classList.add('hidden');});
@@ -1684,7 +1696,7 @@ function togglePrivacy(){
   document.body.classList.toggle('privacy',privacyMode);
   const btn=document.getElementById('privacy-toggle');
   if(btn){
-    btn.textContent=privacyMode?'🙈':'👁';
+    btn.textContent=privacyMode?'%':'$';
     btn.classList.toggle('active',privacyMode);
   }
   renderCalendar();
@@ -1740,8 +1752,10 @@ function updateStats(){
   const balEl=document.getElementById('hs-balance');
   if(balEl){
     if(privacyMode){
-      balEl.textContent='••••';
-      balEl.style.color='#94a3b8';
+      // Show % return on account instead of $ balance
+      const pctReturn=startingBalance>0?(hlPnl/startingBalance*100):0;
+      balEl.textContent=(pctReturn>=0?'+':'')+pctReturn.toFixed(2)+'%';
+      balEl.style.color=hlPnl>=0?'#4ade80':'#f87171';
     } else {
       balEl.textContent=(hlBalance<0?'-$':'$')+Math.abs(hlBalance).toFixed(2);
       if(startingBalance===0&&hlPnl===0){
