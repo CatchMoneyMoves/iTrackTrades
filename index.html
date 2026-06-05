@@ -317,28 +317,26 @@ body.privacy .tc-prices::after{content:'••••';visibility:visible;positio
 ::-webkit-scrollbar-thumb{background:#2d2d3d;border-radius:3px}
 @media (max-width:768px){
   .page{overflow-y:auto;-webkit-overflow-scrolling:touch}
-  .cal-body{flex:none}
-  .cal-grid{grid-auto-rows:minmax(70px,auto)}
-  .sidebar:not(.hidden){width:200px;position:fixed;z-index:500;left:0;top:0;bottom:0}
+  .cal-body{flex:1;padding:6px;display:flex;flex-direction:column}
+  .cal-grid{flex:1;grid-auto-rows:1fr;gap:2px}
+  .sidebar:not(.hidden){width:220px;position:fixed;z-index:500;left:0;top:0;bottom:0;box-shadow:0 0 40px rgba(0,0,0,0.8)}
   .sidebar-toggle{padding:8px 4px;font-size:0.7rem}
-  .topbar{flex-wrap:wrap;gap:8px;padding:8px 12px}
-  .topbar-title{font-size:0.82rem;width:auto;flex-shrink:0}
-  .header-stats{gap:10px;flex-wrap:wrap;justify-content:flex-end;flex:1}
-  .hstat-val{font-size:0.78rem}
-  .hstat-lbl{font-size:0.5rem;letter-spacing:0.5px}
+  .topbar{flex-wrap:wrap;gap:6px;padding:8px 12px}
+  .topbar-title{font-size:0.82rem;flex-shrink:0}
+  .header-stats{gap:8px;flex-wrap:wrap;justify-content:flex-end;flex:1}
+  .hstat-val{font-size:0.75rem}
+  .hstat-lbl{font-size:0.48rem;letter-spacing:0.5px}
   .privacy-toggle{width:28px;height:28px;font-size:0.8rem}
   .cal-header{padding:8px 10px}
-  .cal-month{font-size:0.88rem;min-width:120px}
-  .cal-body{padding:6px 6px 10px}
-  .cal-dow{gap:2px;margin-bottom:3px}
-  .cal-dow span{font-size:0.5rem;letter-spacing:0.5px}
-  .cal-grid{gap:3px}
-  .cal-day{padding:5px 4px;border-radius:6px}
-  .day-num{font-size:0.62rem}
-  .day-pnl{font-size:0.68rem}
-  .day-count{font-size:0.5rem}
+  .cal-month{font-size:0.88rem;min-width:110px}
+  .cal-dow{gap:2px;margin-bottom:2px}
+  .cal-dow span{font-size:0.48rem;letter-spacing:0.5px}
+  .cal-day{padding:4px 3px;border-radius:5px;min-height:0}
+  .day-num{font-size:0.6rem}
+  .day-pnl{font-size:0.62rem}
+  .day-count{font-size:0.48rem}
   .day-pills{gap:2px;margin:2px 0 0}
-  .day-pill{font-size:0.45rem;padding:1px 3px}
+  .day-pill{font-size:0.42rem;padding:1px 2px}
   .modal{padding:14px;max-width:100%;border-radius:12px}
   .overlay-wrap{padding:8px}
   .trade-card{padding:9px}
