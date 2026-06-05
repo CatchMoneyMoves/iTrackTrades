@@ -45,6 +45,7 @@ a{color:#a78bfa;text-decoration:none}
 .sidebar.hidden{width:0;border-right:none}
 .sidebar-inner{display:flex;flex-direction:column;width:200px;min-width:200px;overflow-y:auto;overflow-x:hidden;flex:1}
 .sidebar-logo{padding:16px 14px 10px;font-size:1rem;font-weight:700;color:#a78bfa;border-bottom:1px solid #1e1e2e;white-space:nowrap;overflow:hidden}
+.sidebar-close-mobile{display:none}
 .sidebar-section{padding:10px 12px 4px;font-size:0.6rem;color:#475569;text-transform:uppercase;letter-spacing:1.2px;white-space:nowrap;overflow:hidden}
 .sidebar-item{display:flex;align-items:center;gap:9px;padding:7px 12px;font-size:0.8rem;color:#94a3b8;cursor:pointer;border-radius:7px;margin:1px 5px;transition:all 0.15s;white-space:nowrap;overflow:hidden}
 .sidebar-item:hover,.sidebar-item.active{background:#1e1e2e;color:#e2e8f0}
@@ -321,6 +322,10 @@ body.privacy .tc-prices::after{content:'••••';visibility:visible;positio
   .cal-grid{flex:1;grid-auto-rows:1fr;gap:2px}
   .sidebar:not(.hidden){width:220px;position:fixed;z-index:500;left:0;top:0;bottom:0;box-shadow:0 0 40px rgba(0,0,0,0.8)}
   .sidebar-toggle{padding:8px 4px;font-size:0.7rem}
+  .sidebar-close-mobile{display:flex !important;align-items:center;justify-content:center;position:absolute;top:12px;right:10px;width:32px;height:32px;background:#1e1e2e;border:1px solid #2d2d3d;border-radius:8px;color:#94a3b8;font-size:1.1rem;cursor:pointer;z-index:10}
+  .sidebar-close-mobile:hover{color:#a78bfa;border-color:#a78bfa}
+  #sidebar-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:499}
+  #sidebar-backdrop.show{display:block}
   .topbar{flex-wrap:wrap;gap:6px;padding:8px 12px}
   .topbar-title{font-size:0.82rem;flex-shrink:0}
   .header-stats{gap:8px;flex-wrap:wrap;justify-content:flex-end;flex:1}
@@ -365,6 +370,7 @@ body.privacy .tc-prices::after{content:'••••';visibility:visible;positio
 
 <div class="sidebar" id="sidebar">
   <div class="resize-handle" id="resize-handle"></div>
+  <button class="sidebar-close-mobile" onclick="toggleSidebar()" title="Close">✕</button>
   <div class="sidebar-inner">
     <div class="sidebar-logo">📈 Journal</div>
     <div class="sidebar-section">Views</div>
@@ -403,6 +409,8 @@ body.privacy .tc-prices::after{content:'••••';visibility:visible;positio
     </div>
   </div>
 </div>
+
+<div id="sidebar-backdrop" onclick="toggleSidebar()"></div>
 
 <div class="main">
   <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()">&#8249;</button>
@@ -852,13 +860,16 @@ function updateToggleBtn(){
 
 function toggleSidebar(){
   const sidebar=document.getElementById('sidebar');
+  const backdrop=document.getElementById('sidebar-backdrop');
   sidebarHidden=!sidebarHidden;
   if(sidebarHidden){
     sidebar.style.width='0px';
     sidebar.classList.add('hidden');
+    if(backdrop)backdrop.classList.remove('show');
   } else {
     sidebar.style.width='200px';
     sidebar.classList.remove('hidden');
+    if(backdrop && window.innerWidth<=768)backdrop.classList.add('show');
   }
   updateToggleBtn();
   saveSidebarState();
