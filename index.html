@@ -38,7 +38,7 @@ body:not(.auth-ready) .sidebar,body:not(.auth-ready) .main{display:none !importa
 #sync-indicator.syncing{color:#a78bfa;border-color:#a78bfa}
 #sync-indicator.synced{color:#4ade80;border-color:#4ade80}
 #sync-indicator.error{color:#f87171;border-color:#f87171}
-body{font-family:'Segoe UI',system-ui,sans-serif;background:#0d0d12;color:#e2e8f0;display:flex;height:100vh;overflow:hidden}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0d0d12;color:#e2e8f0;display:flex;height:100vh;height:100dvh;overflow:hidden}
 a{color:#a78bfa;text-decoration:none}
 
 .sidebar{width:200px;min-width:0;max-width:320px;background:#111118;border-right:1px solid #1e1e2e;display:flex;flex-direction:column;flex-shrink:0;overflow:hidden;position:relative;transition:width 0.15s}
@@ -326,7 +326,7 @@ body.privacy .tc-prices::after{content:'••••';visibility:visible;positio
   .sidebar-close-mobile:hover{color:#a78bfa;border-color:#a78bfa}
   #sidebar-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:499}
   #sidebar-backdrop.show{display:block}
-  .topbar{flex-wrap:wrap;gap:6px;padding:8px 12px}
+  .topbar{flex-wrap:wrap;gap:6px;padding:8px 12px;flex-shrink:0;min-height:36px;position:sticky;top:0;z-index:50}
   .topbar-title{font-size:0.82rem;flex-shrink:0}
   .header-stats{gap:8px;flex-wrap:wrap;justify-content:flex-end;flex:1}
   .hstat-val{font-size:0.75rem}
