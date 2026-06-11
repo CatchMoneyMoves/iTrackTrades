@@ -255,7 +255,7 @@ body.privacy .tc-fees::after,body.privacy .tc-size::after,body.privacy .tc-price
 <div class="sidebar">
   <button class="sidebar-close-mobile" onclick="toggleSidebar()" title="Close">✕</button>
   <div class="sidebar-inner">
-    <div class="sidebar-logo">📈 Journal</div>
+    <div class="sidebar-logo" onclick="showPage('calendar',document.getElementById('nav-calendar'));" style="cursor:pointer" title="Back to Calendar">📈 Journal</div>
     <div class="sidebar-section">Views</div>
     <div class="sidebar-item active" id="nav-calendar" onclick="showPage('calendar',this)">
       <span>📅</span> Calendar
@@ -530,6 +530,7 @@ async function loadData(){
       if(btn){btn.textContent='%';btn.classList.add('active');}
     }
     renderCalendar();renderQuarterlyOverview();updateStats();
+    try{history.replaceState({page:'calendar'},'','');}catch(e){}
     document.getElementById('app-loading').style.display='none';
     document.body.classList.add('unlocked');
     document.addEventListener('keydown',e=>{
@@ -573,7 +574,7 @@ async function loadData(){
 
 if(sessionStorage.getItem('tj_viewer_unlocked')==='1')loadData();
 
-function showPage(id,el){
+function showPage(id,el,fromPop){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.sidebar-item').forEach(i=>i.classList.remove('active'));
   document.getElementById('page-'+id).classList.add('active');
@@ -581,9 +582,24 @@ function showPage(id,el){
   const titles={calendar:'Calendar',quarterly:'Performance',qdetail:''};
   if(titles[id]!==undefined)document.getElementById('topbar-title').textContent=titles[id];
   if(id==='quarterly'){renderQuarterlyOverview();setTimeout(renderPnlChart,50);}
+  if(!fromPop){
+    try{history.pushState({page:id},'','');}catch(e){}
+  }
   // Auto-close sidebar on mobile after navigating
   if(window.innerWidth<=768 && !sidebarHidden)toggleSidebar();
 }
+
+window.addEventListener('popstate',e=>{
+  const page=(e.state&&e.state.page)||'calendar';
+  const navMap={calendar:'nav-calendar',quarterly:'nav-quarterly'};
+  const el=navMap[page]?document.getElementById(navMap[page]):null;
+  if(page==='qdetail'){
+    // No stored quarter context — fall back to Performance
+    showPage('quarterly',document.getElementById('nav-quarterly'),true);
+  } else {
+    showPage(page,el,true);
+  }
+});
 
 function changeYear(dir){
   qYear+=dir;
@@ -737,6 +753,7 @@ function openQuarterDetail(q,year,trades){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.getElementById('page-qdetail').classList.add('active');
   document.querySelectorAll('.sidebar-item').forEach(i=>i.classList.remove('active'));
+  try{history.pushState({page:'qdetail'},'','');}catch(e){}
 }
 function renderQdTrades(){
   const sorted=[...currentQTrades].sort((a,b)=>b.date.localeCompare(a.date));
