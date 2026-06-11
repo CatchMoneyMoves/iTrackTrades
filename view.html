@@ -56,6 +56,14 @@ body.unlocked{padding-top:28px}
 .hstat{text-align:center}
 .hstat-val{font-size:0.95rem;font-weight:700}
 .hstat-lbl{font-size:0.58rem;color:#475569;text-transform:uppercase;letter-spacing:1px}
+.pnl-filter-wrap{position:relative;display:inline-block}
+.pnl-filter-btn{background:none;border:none;cursor:pointer;text-align:center;padding:0}
+.pnl-filter-btn:hover .hstat-val{opacity:0.8}
+.pnl-filter-dropdown{position:absolute;top:calc(100% + 6px);right:0;background:#13131a;border:1px solid #2d2d3d;border-radius:9px;min-width:130px;z-index:400;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.5)}
+.pnl-filter-dropdown.hidden{display:none}
+.pnl-filter-option{padding:9px 14px;font-size:0.75rem;color:#94a3b8;cursor:pointer;white-space:nowrap;transition:background 0.12s}
+.pnl-filter-option:hover{background:#1e1e2e;color:#e2e8f0}
+.pnl-filter-option.active{color:#a78bfa;background:#1a1228}
 .privacy-toggle{background:#1e1e2e;border:1px solid #2d2d3d;color:#94a3b8;border-radius:8px;width:36px;height:36px;cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;align-self:center;margin-left:6px;transition:all 0.15s;padding:0;line-height:1}
 .privacy-toggle:hover{background:#2d2d3d;color:#a78bfa;border-color:#a78bfa}
 .privacy-toggle.active{background:#3b1f6e;color:#a78bfa;border-color:#a78bfa}
@@ -183,6 +191,11 @@ body.privacy .tc-fees::after,body.privacy .tc-size::after,body.privacy .tc-price
 .lightbox.open{display:flex}
 .lightbox img{max-width:90vw;max-height:90vh;border-radius:8px}
 .lb-close{position:absolute;top:16px;right:20px;background:none;border:none;color:#fff;font-size:2rem;cursor:pointer}
+.lb-nav{position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.25);color:#fff;border-radius:50%;width:52px;height:52px;font-size:1.6rem;cursor:pointer;display:none;align-items:center;justify-content:center;transition:background 0.15s;z-index:2;user-select:none}
+.lb-nav:hover{background:rgba(255,255,255,0.22)}
+.lb-prev{left:24px}
+.lb-next{right:24px}
+.lb-counter{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);color:#fff;font-size:0.78rem;background:rgba(0,0,0,0.6);padding:6px 14px;border-radius:14px;font-family:ui-monospace,monospace;display:none;letter-spacing:0.5px}
 .green{color:#4ade80}.red{color:#f87171}.purple{color:#a78bfa}.muted{color:#64748b}.neutral{color:#94a3b8}
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-track{background:#0d0d12}
@@ -261,7 +274,17 @@ body.privacy .tc-fees::after,body.privacy .tc-size::after,body.privacy .tc-price
     <div class="header-stats">
       <div class="hstat"><div class="hstat-val purple" id="hs-trades">0</div><div class="hstat-lbl">Trades</div></div>
       <div class="hstat"><div class="hstat-val neutral" id="hs-wr">—</div><div class="hstat-lbl">Win Rate</div></div>
-      <div class="hstat"><div class="hstat-val muted" id="hs-pnl">$0</div><div class="hstat-lbl">All-time P&L</div></div>
+      <div class="hstat pnl-filter-wrap" id="pnl-filter-wrap">
+        <button class="pnl-filter-btn" onclick="togglePnlDropdown(event)">
+          <div class="hstat-val muted" id="hs-pnl">$0</div>
+          <div class="hstat-lbl" id="hs-pnl-lbl">THIS MONTH ▾</div>
+        </button>
+        <div class="pnl-filter-dropdown hidden" id="pnl-filter-dropdown">
+          <div class="pnl-filter-option active" onclick="setPnlFilter('month',this)">This Month</div>
+          <div class="pnl-filter-option" onclick="setPnlFilter('90d',this)">Last 90 Days</div>
+          <div class="pnl-filter-option" onclick="setPnlFilter('all',this)">All-Time</div>
+        </div>
+      </div>
       <div class="hstat"><div class="hstat-val" id="hs-balance">$0</div><div class="hstat-lbl">Balance</div></div>
       <button class="privacy-toggle" id="privacy-toggle" onclick="togglePrivacy()" title="Toggle $ / % mode (Ctrl+H)">$</button>
     </div>
@@ -337,9 +360,12 @@ body.privacy .tc-fees::after,body.privacy .tc-size::after,body.privacy .tc-price
   </div>
 </div>
 
-<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+<div class="lightbox" id="lightbox" onclick="closeLightboxBg(event)">
   <button class="lb-close" onclick="closeLightbox()">&#215;</button>
-  <img id="lb-img" src="" alt="">
+  <button class="lb-nav lb-prev" id="lb-prev" onclick="event.stopPropagation();lbPrev()" title="Previous (&#8592;)">&#8249;</button>
+  <button class="lb-nav lb-next" id="lb-next" onclick="event.stopPropagation();lbNext()" title="Next (&#8594;)">&#8250;</button>
+  <img id="lb-img" src="" alt="" onclick="event.stopPropagation()">
+  <div class="lb-counter" id="lb-counter"></div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -351,6 +377,7 @@ let startingBalance=0;
 let hlNetDeposits=0;
 let privacyMode=false;
 let sidebarHidden=false;
+let pnlFilterMode='month';
 
 function getAccountSize(){
   const all=Object.values(data).flatMap(d=>d.trades||[]);
@@ -508,7 +535,13 @@ async function loadData(){
     document.addEventListener('keydown',e=>{
       if(e.key==='Escape'){closeModalDirect();closeDetailDirect();closeLightbox();return;}
       if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='h'){e.preventDefault();togglePrivacy();return;}
+      const lb=document.getElementById('lightbox');
+      if(lb&&lb.classList.contains('open')){
+        if(e.key==='ArrowLeft'){e.preventDefault();lbPrev();return;}
+        if(e.key==='ArrowRight'){e.preventDefault();lbNext();return;}
+      }
     });
+    document.addEventListener('click',()=>{const dd=document.getElementById('pnl-filter-dropdown');if(dd)dd.classList.add('hidden');});
     // Fetch HL ledger in background so balance reflects deposits/withdrawals
     if(hlWallet){
       try{
@@ -563,8 +596,9 @@ function changeMonth(dir){
   if(currentMonth>11){currentMonth=0;currentYear++;}
   if(currentMonth<0){currentMonth=11;currentYear--;}
   renderCalendar();
+  updateStats();
 }
-function goToday(){const n=new Date();currentYear=n.getFullYear();currentMonth=n.getMonth();renderCalendar();}
+function goToday(){const n=new Date();currentYear=n.getFullYear();currentMonth=n.getMonth();renderCalendar();updateStats();}
 
 function renderCalendar(){
   const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -614,7 +648,6 @@ function buildChartData(trades){
 function makeChart(canvas,labels,values){
   const isPos=!values.length||values[values.length-1]>=0;
   const lineColor=isPos?'#4ade80':'#f87171';
-  const acctSize=getAccountSize();
   return new Chart(canvas,{
     type:'line',
     data:{labels,datasets:[{
@@ -634,7 +667,7 @@ function makeChart(canvas,labels,values){
       plugins:{legend:{display:false},tooltip:{backgroundColor:'#1e1e2e',borderColor:'#a78bfa',borderWidth:1,titleColor:'#a78bfa',bodyColor:'#e2e8f0',padding:9,callbacks:{title:i=>i[0].label,label:i=>`  P&L: ${pnlStr(i.raw)}`}}},
       scales:{
         x:{ticks:{color:'#475569',font:{size:9},maxTicksLimit:7,maxRotation:0},grid:{color:'#1e1e2e'}},
-        y:{ticks:{color:'#475569',font:{size:9},callback:v=>privacyMode?`${(v/acctSize*100).toFixed(0)}%`:`$${v.toFixed(0)}`},grid:{color:'#1e1e2e'}}
+        y:{ticks:{color:'#475569',font:{size:9},callback:v=>`$${v.toFixed(0)}`},grid:{color:'#1e1e2e'}}
       }
     }
   });
@@ -778,7 +811,7 @@ function renderLoggedTrades(){
       </div>
       ${t.notes?`<div class="tc-notes-preview">${t.notes.length>120?t.notes.slice(0,120)+'…':t.notes}</div>`:''}
       ${t.tags&&t.tags.length?`<div class="tc-tags">${t.tags.map(g=>`<span class="tc-tag">${g}</span>`).join('')}</div>`:''}
-      ${t.screenshots&&t.screenshots.length?`<div class="tc-shots">${t.screenshots.map(s=>`<img src="${s}" onclick="event.stopPropagation();openLightbox('${s}')">`).join('')}</div>`:''}
+      ${t.screenshots&&t.screenshots.length?`<div class="tc-shots">${t.screenshots.map((s,si)=>`<img src="${s}" onclick="event.stopPropagation();openLightbox('${activeDate}',${i},${si})">`).join('')}</div>`:''}
     </div>`).join('');
 }
 
@@ -808,25 +841,117 @@ function openTradeDetail(dk,idx){
     </div>
     ${t.tags&&t.tags.length?`<div class="tc-tags" style="margin-bottom:11px">${t.tags.map(g=>`<span class="tc-tag">${g}</span>`).join('')}</div>`:''}
     ${t.notes?`<div style="background:#0d0d12;border-radius:0 8px 8px 0;border-left:2px solid #a78bfa;padding:11px;font-size:0.8rem;color:#94a3b8;line-height:1.6;margin-bottom:9px"><div style="font-size:0.6rem;color:#475569;text-transform:uppercase;margin-bottom:5px">Notes</div>${t.notes}</div>`:''}
-    ${t.screenshots&&t.screenshots.length?`<div class="ss-grid" style="margin-bottom:9px">${t.screenshots.map(s=>`<div class="ss-thumb"><img src="${s}" onclick="openLightbox('${s}')" style="cursor:pointer"></div>`).join('')}</div>`:''}
+    ${t.screenshots&&t.screenshots.length?`<div class="ss-grid" style="margin-bottom:9px">${t.screenshots.map((s,si)=>`<div class="ss-thumb"><img src="${s}" onclick="openLightbox('${dk}',${idx},${si})" style="cursor:pointer"></div>`).join('')}</div>`:''}
     ${ytId?`<div style="margin-top:8px"><div style="font-size:0.6rem;color:#475569;text-transform:uppercase;margin-bottom:6px">Video</div>${ytThumb(ytId,t.youtube)}</div>`:''}`;
   document.getElementById('detail-overlay').classList.add('open');
 }
 function closeDetailOverlay(e){if(e.target===document.getElementById('detail-overlay'))closeDetailDirect();}
 function closeDetailDirect(){document.getElementById('detail-overlay').classList.remove('open');}
 
-function openLightbox(src){document.getElementById('lb-img').src=src;document.getElementById('lightbox').classList.add('open');}
+let lbGallery=[];
+let lbIndex=0;
+
+function openLightbox(dk,tradeIdx,imgIdx){
+  if(typeof dk==='string' && tradeIdx===undefined){
+    lbGallery=[dk];
+    lbIndex=0;
+  } else {
+    const trade=((data[dk]||{}).trades||[])[tradeIdx];
+    if(!trade||!trade.screenshots||!trade.screenshots.length)return;
+    lbGallery=trade.screenshots;
+    lbIndex=Math.max(0,Math.min(imgIdx||0,lbGallery.length-1));
+  }
+  showLbImage();
+  document.getElementById('lightbox').classList.add('open');
+}
+
+function showLbImage(){
+  if(!lbGallery.length)return;
+  document.getElementById('lb-img').src=lbGallery[lbIndex];
+  const prev=document.getElementById('lb-prev');
+  const next=document.getElementById('lb-next');
+  const counter=document.getElementById('lb-counter');
+  if(lbGallery.length>1){
+    if(prev)prev.style.display='flex';
+    if(next)next.style.display='flex';
+    if(counter){counter.style.display='block';counter.textContent=`${lbIndex+1} / ${lbGallery.length}`;}
+  } else {
+    if(prev)prev.style.display='none';
+    if(next)next.style.display='none';
+    if(counter)counter.style.display='none';
+  }
+}
+
+function lbPrev(){
+  if(lbGallery.length<2)return;
+  lbIndex=(lbIndex-1+lbGallery.length)%lbGallery.length;
+  showLbImage();
+}
+
+function lbNext(){
+  if(lbGallery.length<2)return;
+  lbIndex=(lbIndex+1)%lbGallery.length;
+  showLbImage();
+}
+
+function closeLightboxBg(e){
+  if(e.target.id==='lightbox')closeLightbox();
+}
 function closeLightbox(){document.getElementById('lightbox').classList.remove('open');}
+
+function calcFilteredPnl(){
+  if(pnlFilterMode==='month'){
+    const y=currentYear,m=currentMonth;
+    return Object.entries(data).flatMap(([dk,dd])=>{
+      const d=new Date(dk+'T12:00:00');
+      return(d.getFullYear()===y&&d.getMonth()===m)?(dd.trades||[]):[];
+    }).reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+  }
+  if(pnlFilterMode==='90d'){
+    const cutoff=new Date(Date.now()-90*24*60*60*1000);
+    return Object.entries(data).flatMap(([dk,dd])=>{
+      return(new Date(dk+'T12:00:00')>=cutoff)?(dd.trades||[]):[];
+    }).reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+  }
+  return Object.values(data).flatMap(d=>d.trades||[]).reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+}
+
+function getPnlLabel(){
+  const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  if(pnlFilterMode==='month')return `${months[currentMonth].toUpperCase()} ${currentYear} ▾`;
+  if(pnlFilterMode==='90d')return 'LAST 90 DAYS ▾';
+  return 'ALL-TIME ▾';
+}
+
+function togglePnlDropdown(e){
+  e.stopPropagation();
+  const dd=document.getElementById('pnl-filter-dropdown');
+  if(dd)dd.classList.toggle('hidden');
+}
+
+function setPnlFilter(mode,el){
+  pnlFilterMode=mode;
+  const dd=document.getElementById('pnl-filter-dropdown');
+  if(dd){
+    dd.querySelectorAll('.pnl-filter-option').forEach(o=>o.classList.remove('active'));
+    if(el)el.classList.add('active');
+    dd.classList.add('hidden');
+  }
+  updateStats();
+}
 
 function updateStats(){
   const all=Object.values(data).flatMap(d=>d.trades||[]);
   const pnl=all.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
   const wins=all.filter(t=>t.result==='Win').length;
   const wr=all.length?Math.round(wins/all.length*100):null;
+  const filteredPnl=calcFilteredPnl();
   document.getElementById('hs-trades').textContent=all.length;
   document.getElementById('hs-wr').textContent=wr!==null?wr+'%':'—';
-  document.getElementById('hs-pnl').textContent=pnlStr(pnl);
-  document.getElementById('hs-pnl').style.color=pnl>0?'#4ade80':pnl<0?'#f87171':'#64748b';
+  document.getElementById('hs-pnl').textContent=pnlStr(filteredPnl);
+  document.getElementById('hs-pnl').style.color=filteredPnl>0?'#4ade80':filteredPnl<0?'#f87171':'#64748b';
+  const pnlLbl=document.getElementById('hs-pnl-lbl');
+  if(pnlLbl)pnlLbl.textContent=getPnlLabel();
   const balance=startingBalance+hlNetDeposits+pnl;
   const balEl=document.getElementById('hs-balance');
   if(balEl){
