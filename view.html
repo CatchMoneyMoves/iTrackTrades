@@ -21,7 +21,7 @@ const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
 <title>Trading Journal — View Only</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',system-ui,sans-serif;background:#0d0d12;color:#e2e8f0;display:flex;height:100vh;overflow:hidden}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0d0d12;color:#e2e8f0;display:flex;height:100vh;height:100dvh;overflow:hidden}
 a{color:#a78bfa;text-decoration:none}
 
 #password-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:#0d0d12;z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px}
@@ -43,6 +43,7 @@ body.unlocked{padding-top:28px}
 .sidebar{width:200px;background:#111118;border-right:1px solid #1e1e2e;display:flex;flex-direction:column;flex-shrink:0;overflow:hidden}
 .sidebar-inner{display:flex;flex-direction:column;width:200px;overflow-y:auto;flex:1}
 .sidebar-logo{padding:16px 14px 10px;font-size:1rem;font-weight:700;color:#a78bfa;border-bottom:1px solid #1e1e2e}
+.sidebar-close-mobile{display:none}
 .sidebar-section{padding:10px 12px 4px;font-size:0.6rem;color:#475569;text-transform:uppercase;letter-spacing:1.2px}
 .sidebar-item{display:flex;align-items:center;gap:9px;padding:7px 12px;font-size:0.8rem;color:#94a3b8;cursor:pointer;border-radius:7px;margin:1px 5px}
 .sidebar-item:hover,.sidebar-item.active{background:#1e1e2e;color:#e2e8f0}
@@ -51,10 +52,15 @@ body.unlocked{padding-top:28px}
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative}
 .topbar{background:#111118;border-bottom:1px solid #1e1e2e;padding:10px 20px;display:flex;align-items:center;justify-content:space-between}
 .topbar-title{font-size:0.95rem;font-weight:600}
-.header-stats{display:flex;gap:20px}
+.header-stats{display:flex;gap:20px;align-items:center}
 .hstat{text-align:center}
 .hstat-val{font-size:0.95rem;font-weight:700}
 .hstat-lbl{font-size:0.58rem;color:#475569;text-transform:uppercase;letter-spacing:1px}
+.privacy-toggle{background:#1e1e2e;border:1px solid #2d2d3d;color:#94a3b8;border-radius:8px;width:36px;height:36px;cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;align-self:center;margin-left:6px;transition:all 0.15s;padding:0;line-height:1}
+.privacy-toggle:hover{background:#2d2d3d;color:#a78bfa;border-color:#a78bfa}
+.privacy-toggle.active{background:#3b1f6e;color:#a78bfa;border-color:#a78bfa}
+body.privacy .tc-fees,body.privacy .tc-size,body.privacy .tc-prices{visibility:hidden;position:relative}
+body.privacy .tc-fees::after,body.privacy .tc-size::after,body.privacy .tc-prices::after{content:'\2022\2022\2022\2022';visibility:visible;position:absolute;left:0;top:0;color:#475569;font-family:ui-monospace,monospace}
 
 .page{flex:1;overflow:hidden;display:none;flex-direction:column}
 .page.active{display:flex}
@@ -98,7 +104,7 @@ body.unlocked{padding-top:28px}
 .q-overview-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
 .q-overview-card{background:#13131a;border:1px solid #1e1e2e;border-radius:12px;padding:14px;cursor:pointer;position:relative}
 .q-overview-card:hover{border-color:#a78bfa}
-.q-overview-card::after{content:'›';position:absolute;right:12px;top:50%;transform:translateY(-50%);color:#475569;font-size:1.2rem}
+.q-overview-card::after{content:'\203a';position:absolute;right:12px;top:50%;transform:translateY(-50%);color:#475569;font-size:1.2rem}
 .qoc-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .qoc-title{font-size:0.95rem;font-weight:700;color:#a78bfa}
 .qoc-pnl{font-size:0.95rem;font-weight:700}
@@ -142,6 +148,9 @@ body.unlocked{padding-top:28px}
 .trade-card:hover{border-color:#a78bfa}
 .trade-card-header{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:5px}
 .tc-pair{font-weight:700;color:#c4b5fd;font-size:0.88rem}
+.tc-direction{font-size:0.6rem;padding:2px 6px;border-radius:10px;font-weight:700;letter-spacing:0.5px;font-family:ui-monospace,monospace}
+.tc-direction.long{background:rgba(74,222,128,0.15);color:#4ade80;border:1px solid rgba(74,222,128,0.35)}
+.tc-direction.short{background:rgba(248,113,113,0.15);color:#f87171;border:1px solid rgba(248,113,113,0.35)}
 .badge-win{font-size:0.65rem;padding:2px 7px;border-radius:10px;font-weight:600;background:#052e16;color:#4ade80}
 .badge-loss{font-size:0.65rem;padding:2px 7px;border-radius:10px;font-weight:600;background:#2d0f0f;color:#f87171}
 .badge-be{font-size:0.65rem;padding:2px 7px;border-radius:10px;font-weight:600;background:#1e1a2e;color:#a78bfa}
@@ -178,6 +187,42 @@ body.unlocked{padding-top:28px}
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-track{background:#0d0d12}
 ::-webkit-scrollbar-thumb{background:#2d2d3d;border-radius:3px}
+@media (max-width:768px){
+  .page{overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .cal-body{flex:1;padding:6px;display:flex;flex-direction:column}
+  .cal-grid{flex:1;grid-auto-rows:1fr;gap:2px}
+  .sidebar:not(.hidden){width:220px;position:fixed;z-index:500;left:0;top:0;bottom:0;box-shadow:0 0 40px rgba(0,0,0,0.8)}
+  .sidebar-close-mobile{display:flex !important;align-items:center;justify-content:center;position:absolute;top:12px;right:10px;width:32px;height:32px;background:#1e1e2e;border:1px solid #2d2d3d;border-radius:8px;color:#94a3b8;font-size:1.1rem;cursor:pointer;z-index:10}
+  .sidebar-close-mobile:hover{color:#a78bfa;border-color:#a78bfa}
+  #sidebar-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:499}
+  #sidebar-backdrop.show{display:block}
+  .topbar{flex-wrap:wrap;gap:6px;padding:8px 12px;flex-shrink:0;min-height:36px;position:sticky;top:0;z-index:50}
+  .topbar-title{font-size:0.82rem;flex-shrink:0}
+  .header-stats{gap:8px;flex-wrap:wrap;justify-content:flex-end;flex:1}
+  .hstat-val{font-size:0.75rem}
+  .hstat-lbl{font-size:0.48rem;letter-spacing:0.5px}
+  .privacy-toggle{width:28px;height:28px;font-size:0.8rem}
+  .cal-header{padding:8px 10px}
+  .cal-month{font-size:0.88rem;min-width:110px}
+  .cal-dow{gap:2px;margin-bottom:2px}
+  .cal-dow span{font-size:0.48rem;letter-spacing:0.5px}
+  .cal-day{padding:4px 3px;border-radius:5px;min-height:0}
+  .day-num{font-size:0.6rem}
+  .day-pnl{font-size:0.62rem}
+  .day-count{font-size:0.48rem}
+  .day-pills{gap:2px;margin:2px 0 0}
+  .day-pill{font-size:0.42rem;padding:1px 2px}
+  .modal{padding:14px;max-width:100%;border-radius:12px}
+  .overlay-wrap{padding:8px}
+  .trade-card{padding:9px}
+  .tc-pair{font-size:0.8rem}
+  .tc-meta{font-size:0.65rem;gap:5px}
+  .detail-grid{grid-template-columns:1fr 1fr;gap:5px}
+  .qd-stats-bar{gap:4px;padding:8px 10px}
+  .qd-stat{padding:5px 6px;min-width:50px}
+  .qd-stat-val{font-size:0.78rem}
+  .q-overview-grid{grid-template-columns:1fr}
+}
 </style>
 </head>
 <body>
@@ -195,6 +240,7 @@ body.unlocked{padding-top:28px}
 <div class="view-banner">👁 VIEW ONLY MODE — No editing</div>
 
 <div class="sidebar">
+  <button class="sidebar-close-mobile" onclick="toggleSidebar()" title="Close">✕</button>
   <div class="sidebar-inner">
     <div class="sidebar-logo">📈 Journal</div>
     <div class="sidebar-section">Views</div>
@@ -207,6 +253,8 @@ body.unlocked{padding-top:28px}
   </div>
 </div>
 
+<div id="sidebar-backdrop" onclick="toggleSidebar()"></div>
+
 <div class="main">
   <div class="topbar">
     <div class="topbar-title" id="topbar-title">Calendar</div>
@@ -215,6 +263,7 @@ body.unlocked{padding-top:28px}
       <div class="hstat"><div class="hstat-val neutral" id="hs-wr">—</div><div class="hstat-lbl">Win Rate</div></div>
       <div class="hstat"><div class="hstat-val muted" id="hs-pnl">$0</div><div class="hstat-lbl">All-time P&L</div></div>
       <div class="hstat"><div class="hstat-val" id="hs-balance">$0</div><div class="hstat-lbl">Balance</div></div>
+      <button class="privacy-toggle" id="privacy-toggle" onclick="togglePrivacy()" title="Toggle $ / % mode (Ctrl+H)">$</button>
     </div>
   </div>
 
@@ -300,8 +349,19 @@ let qYear=new Date().getFullYear();
 let activePairFilter=null;
 let startingBalance=0;
 let hlNetDeposits=0;
+let privacyMode=false;
+let sidebarHidden=false;
 
-function pnlStr(val){const v=parseFloat(val)||0;return v>=0?`+$${v.toFixed(2)}`:`-$${Math.abs(v).toFixed(2)}`;}
+function getAccountSize(){
+  const all=Object.values(data).flatMap(d=>d.trades||[]);
+  const pnl=all.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+  return Math.abs(startingBalance+hlNetDeposits+pnl)||Math.abs(startingBalance+hlNetDeposits)||1;
+}
+function pnlStr(val){
+  const v=parseFloat(val)||0;
+  if(privacyMode){const pct=v/getAccountSize()*100;return pct>=0?`+${pct.toFixed(2)}%`:`-${Math.abs(pct).toFixed(2)}%`;}
+  return v>=0?`+$${v.toFixed(2)}`:`-$${Math.abs(v).toFixed(2)}`;
+}
 function pnlClass(val){return parseFloat(val)>=0?'green':'red';}
 
 // Smart number formatting for prices and sizes (crypto-friendly)
@@ -372,6 +432,33 @@ document.getElementById('pw-input').addEventListener('keypress',e=>{
   if(e.key==='Enter')checkPassword();
 });
 
+function toggleSidebar(){
+  const sidebar=document.querySelector('.sidebar');
+  const backdrop=document.getElementById('sidebar-backdrop');
+  sidebarHidden=!sidebarHidden;
+  if(sidebarHidden){
+    sidebar.style.width='0px';
+    sidebar.classList.add('hidden');
+    if(backdrop)backdrop.classList.remove('show');
+  } else {
+    sidebar.style.width='200px';
+    sidebar.classList.remove('hidden');
+    if(backdrop && window.innerWidth<=768)backdrop.classList.add('show');
+  }
+}
+
+function togglePrivacy(){
+  privacyMode=!privacyMode;
+  try{localStorage.setItem('tj_viewer_privacy',privacyMode?'1':'0');}catch(e){}
+  document.body.classList.toggle('privacy',privacyMode);
+  const btn=document.getElementById('privacy-toggle');
+  if(btn){btn.textContent=privacyMode?'%':'$';btn.classList.toggle('active',privacyMode);}
+  renderCalendar();renderQuarterlyOverview();updateStats();
+  if(document.getElementById('overlay').classList.contains('open')){renderDaySummary();renderLoggedTrades();}
+  if(document.getElementById('page-qdetail').classList.contains('active')){renderQdTrades();}
+  if(pnlChart){renderPnlChart();}
+}
+
 async function loadData(){
   document.getElementById('password-overlay').style.display='none';
   document.getElementById('app-loading').style.display='flex';
@@ -399,6 +486,7 @@ async function loadData(){
         fees:parseFloat(t.fees)||0,
         hl_fill_ids:t.hl_fill_ids||[],
         is_draft:!!t.is_draft,
+        direction:t.direction||null,
         size:t.size!=null?parseFloat(t.size):null,
         entry_price:t.entry_price!=null?parseFloat(t.entry_price):null,
         exit_price:t.exit_price!=null?parseFloat(t.exit_price):null
@@ -407,10 +495,20 @@ async function loadData(){
     const now=new Date();
     currentYear=now.getFullYear();currentMonth=now.getMonth();
     qYear=now.getFullYear();
+    // Restore privacy state
+    privacyMode=localStorage.getItem('tj_viewer_privacy')==='1';
+    if(privacyMode){
+      document.body.classList.add('privacy');
+      const btn=document.getElementById('privacy-toggle');
+      if(btn){btn.textContent='%';btn.classList.add('active');}
+    }
     renderCalendar();renderQuarterlyOverview();updateStats();
     document.getElementById('app-loading').style.display='none';
     document.body.classList.add('unlocked');
-    document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModalDirect();closeDetailDirect();closeLightbox();}});
+    document.addEventListener('keydown',e=>{
+      if(e.key==='Escape'){closeModalDirect();closeDetailDirect();closeLightbox();return;}
+      if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='h'){e.preventDefault();togglePrivacy();return;}
+    });
     // Fetch HL ledger in background so balance reflects deposits/withdrawals
     if(hlWallet){
       try{
@@ -450,6 +548,8 @@ function showPage(id,el){
   const titles={calendar:'Calendar',quarterly:'Performance',qdetail:''};
   if(titles[id]!==undefined)document.getElementById('topbar-title').textContent=titles[id];
   if(id==='quarterly'){renderQuarterlyOverview();setTimeout(renderPnlChart,50);}
+  // Auto-close sidebar on mobile after navigating
+  if(window.innerWidth<=768 && !sidebarHidden)toggleSidebar();
 }
 
 function changeYear(dir){
@@ -514,6 +614,7 @@ function buildChartData(trades){
 function makeChart(canvas,labels,values){
   const isPos=!values.length||values[values.length-1]>=0;
   const lineColor=isPos?'#4ade80':'#f87171';
+  const acctSize=getAccountSize();
   return new Chart(canvas,{
     type:'line',
     data:{labels,datasets:[{
@@ -533,7 +634,7 @@ function makeChart(canvas,labels,values){
       plugins:{legend:{display:false},tooltip:{backgroundColor:'#1e1e2e',borderColor:'#a78bfa',borderWidth:1,titleColor:'#a78bfa',bodyColor:'#e2e8f0',padding:9,callbacks:{title:i=>i[0].label,label:i=>`  P&L: ${pnlStr(i.raw)}`}}},
       scales:{
         x:{ticks:{color:'#475569',font:{size:9},maxTicksLimit:7,maxRotation:0},grid:{color:'#1e1e2e'}},
-        y:{ticks:{color:'#475569',font:{size:9},callback:v=>`$${v.toFixed(0)}`},grid:{color:'#1e1e2e'}}
+        y:{ticks:{color:'#475569',font:{size:9},callback:v=>privacyMode?`${(v/acctSize*100).toFixed(0)}%`:`$${v.toFixed(0)}`},grid:{color:'#1e1e2e'}}
       }
     }
   });
@@ -662,6 +763,7 @@ function renderLoggedTrades(){
       <div class="trade-card-header">
         ${t.source==='hyperliquid'?`<span class="tc-source-icon" title="Auto-synced from Hyperliquid">⚡</span>`:''}
         <span class="tc-pair">${t.pair||'—'}</span>
+        ${t.direction?`<span class="tc-direction ${t.direction==='Long'?'long':'short'}">${t.direction==='Long'?'▲ LONG':'▼ SHORT'}</span>`:''}
         ${t.fees?`<span class="tc-fees">−$${parseFloat(t.fees).toFixed(2)} fees</span>`:''}
         ${t.is_draft?`<span class="badge-draft">DRAFT</span>`:''}
         ${t.result?`<span class="badge-${t.result==='Win'?'win':t.result==='Loss'?'loss':'be'}">${t.result}</span>`:''}
@@ -693,11 +795,12 @@ function openTradeDetail(dk,idx){
   document.getElementById('detail-content').innerHTML=`
     <div class="detail-grid">
       <div class="detail-item"><div class="detail-lbl">Result</div><div class="detail-val ${t.result==='Win'?'green':t.result==='Loss'?'red':'purple'}">${t.result||'—'}</div></div>
+      ${t.direction?`<div class="detail-item"><div class="detail-lbl">Direction</div><div class="detail-val ${t.direction==='Long'?'green':'red'}">${t.direction==='Long'?'▲ Long':'▼ Short'}</div></div>`:''}
       <div class="detail-item"><div class="detail-lbl">Net P&L</div><div class="detail-val ${pnlClass(t.pnl)}">${pnlStr(t.pnl)}</div></div>
-      ${t.fees?`<div class="detail-item"><div class="detail-lbl">Fees / Commission</div><div class="detail-val" style="color:#fbbf24">−$${parseFloat(t.fees).toFixed(2)}</div></div>`:''}
-      ${t.size?`<div class="detail-item"><div class="detail-lbl">Size</div><div class="detail-val" style="font-family:ui-monospace,monospace">${fmtSize(t.size)} ${t.pair||''}</div></div>`:''}
-      ${t.entry_price?`<div class="detail-item"><div class="detail-lbl">Entry Price</div><div class="detail-val" style="font-family:ui-monospace,monospace">$${fmtPrice(t.entry_price)}</div></div>`:''}
-      ${t.exit_price?`<div class="detail-item"><div class="detail-lbl">Exit Price</div><div class="detail-val" style="font-family:ui-monospace,monospace">$${fmtPrice(t.exit_price)}</div></div>`:''}
+      ${t.fees?`<div class="detail-item"><div class="detail-lbl">Fees / Commission</div><div class="detail-val" style="color:#fbbf24">${privacyMode?'••••':'−$'+parseFloat(t.fees).toFixed(2)}</div></div>`:''}
+      ${t.size?`<div class="detail-item"><div class="detail-lbl">Size</div><div class="detail-val" style="font-family:ui-monospace,monospace">${privacyMode?'••••':fmtSize(t.size)+' '+(t.pair||'')}</div></div>`:''}
+      ${t.entry_price?`<div class="detail-item"><div class="detail-lbl">Entry Price</div><div class="detail-val" style="font-family:ui-monospace,monospace">${privacyMode?'••••':'$'+fmtPrice(t.entry_price)}</div></div>`:''}
+      ${t.exit_price?`<div class="detail-item"><div class="detail-lbl">Exit Price</div><div class="detail-val" style="font-family:ui-monospace,monospace">${privacyMode?'••••':'$'+fmtPrice(t.exit_price)}</div></div>`:''}
       <div class="detail-item"><div class="detail-lbl">Timeframe</div><div class="detail-val">${t.timeframe||'—'}</div></div>
       <div class="detail-item"><div class="detail-lbl">Bias</div><div class="detail-val">${t.bias||'—'}</div></div>
       <div class="detail-item"><div class="detail-lbl">Setup</div><div class="detail-val">${t.setup||'—'}</div></div>
@@ -727,15 +830,22 @@ function updateStats(){
   const balance=startingBalance+hlNetDeposits+pnl;
   const balEl=document.getElementById('hs-balance');
   if(balEl){
-    balEl.textContent=(balance<0?'-$':'$')+Math.abs(balance).toFixed(2);
-    const reference=startingBalance+hlNetDeposits;
-    balEl.style.color=(startingBalance===0&&hlNetDeposits===0)?'#94a3b8':(balance>=reference?'#4ade80':'#f87171');
-    const parts=[];
-    if(startingBalance)parts.push(`Baseline: $${startingBalance.toFixed(2)}`);
-    if(hlNetDeposits)parts.push(`Net deposits: ${hlNetDeposits>=0?'+':''}$${hlNetDeposits.toFixed(2)}`);
-    if(pnl)parts.push(`Trade P&L: ${pnl>=0?'+':''}$${pnl.toFixed(2)}`);
-    const parentEl=balEl.closest('.hstat');
-    if(parentEl)parentEl.title=parts.length?parts.join('  •  ')+`  =  $${balance.toFixed(2)}`:'';
+    if(privacyMode){
+      balEl.textContent='••••';
+      balEl.style.color='#94a3b8';
+      const parentEl=balEl.closest('.hstat');
+      if(parentEl)parentEl.title='';
+    } else {
+      balEl.textContent=(balance<0?'-$':'$')+Math.abs(balance).toFixed(2);
+      const reference=startingBalance+hlNetDeposits;
+      balEl.style.color=(startingBalance===0&&hlNetDeposits===0)?'#94a3b8':(balance>=reference?'#4ade80':'#f87171');
+      const parts=[];
+      if(startingBalance)parts.push(`Baseline: $${startingBalance.toFixed(2)}`);
+      if(hlNetDeposits)parts.push(`Net deposits: ${hlNetDeposits>=0?'+':''}$${hlNetDeposits.toFixed(2)}`);
+      if(pnl)parts.push(`Trade P&L: ${pnl>=0?'+':''}$${pnl.toFixed(2)}`);
+      const parentEl=balEl.closest('.hstat');
+      if(parentEl)parentEl.title=parts.length?parts.join('  •  ')+`  =  $${balance.toFixed(2)}`:'';
+    }
   }
 }
 </script>
