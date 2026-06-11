@@ -73,14 +73,14 @@ body.privacy .tc-fees::after,body.privacy .tc-size::after,body.privacy .tc-price
 .page{flex:1;overflow:hidden;display:none;flex-direction:column}
 .page.active{display:flex}
 
-.cal-header{padding:12px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #1e1e2e}
+.cal-header{padding:12px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;border-bottom:1px solid #1e1e2e}
 .cal-nav-center{display:flex;align-items:center;gap:10px}
 .cal-month{font-size:1rem;font-weight:600;min-width:150px;text-align:center}
 .nav-btn{background:#1e1e2e;border:1px solid #2d2d3d;color:#e2e8f0;border-radius:7px;padding:4px 10px;cursor:pointer;font-size:0.85rem}
 .nav-btn:hover{background:#2d2d3d}
 .today-btn{background:transparent;border:1px solid #a78bfa;color:#a78bfa;border-radius:7px;padding:4px 10px;cursor:pointer;font-size:0.72rem}
-.cal-body{flex:1;display:flex;flex-direction:column;padding:10px 14px 14px}
-.cal-dow{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-bottom:5px}
+.cal-body{flex:1;display:flex;flex-direction:column;padding:10px 14px 14px;overflow:hidden}
+.cal-dow{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-bottom:5px;flex-shrink:0}
 .cal-dow span{text-align:center;font-size:0.6rem;text-transform:uppercase;letter-spacing:1px;color:#475569;padding:3px 0}
 .cal-grid{flex:1;display:grid;grid-template-columns:repeat(7,1fr);grid-auto-rows:1fr;gap:5px}
 .cal-day{background:#13131a;border:1px solid #1e1e2e;border-radius:8px;padding:8px;cursor:pointer;display:flex;flex-direction:column}
@@ -104,10 +104,10 @@ body.privacy .tc-fees::after,body.privacy .tc-size::after,body.privacy .tc-price
 .pair-filter-chip button{background:none;border:none;color:#a78bfa;cursor:pointer;font-size:1rem;line-height:0.8;padding:0;opacity:0.65}
 .pair-filter-chip button:hover{opacity:1}
 
-.q-year-nav{display:flex;align-items:center;justify-content:center;gap:14px;padding:12px 20px 0}
+.q-year-nav{display:flex;align-items:center;justify-content:center;gap:14px;padding:12px 20px 0;flex-shrink:0}
 .q-year-btn{background:#1e1e2e;border:1px solid #2d2d3d;color:#e2e8f0;border-radius:7px;padding:4px 12px;cursor:pointer}
 .q-year-label{font-size:1rem;font-weight:700;color:#a78bfa;min-width:60px;text-align:center}
-.q-top{padding:12px 20px;max-height:44%;overflow-y:auto}
+.q-top{flex-shrink:0;padding:12px 20px;overflow-y:auto;max-height:44%}
 .q-bottom{flex:1;padding:0 20px 16px;display:flex;flex-direction:column;min-height:0}
 .q-overview-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
 .q-overview-card{background:#13131a;border:1px solid #1e1e2e;border-radius:12px;padding:14px;cursor:pointer;position:relative}
@@ -121,18 +121,18 @@ body.privacy .tc-fees::after,body.privacy .tc-size::after,body.privacy .tc-price
 .qoc-val{font-size:0.82rem;font-weight:700}
 .qoc-lbl{font-size:0.56rem;color:#475569;text-transform:uppercase;margin-top:1px}
 .chart-section{background:#13131a;border:1px solid #1e1e2e;border-radius:12px;padding:16px;flex:1;display:flex;flex-direction:column;min-height:0}
-.chart-title{font-size:0.78rem;font-weight:600;color:#94a3b8;margin-bottom:10px}
-.chart-wrap{flex:1;position:relative}
+.chart-title{font-size:0.78rem;font-weight:600;color:#94a3b8;margin-bottom:10px;flex-shrink:0}
+.chart-wrap{flex:1;position:relative;min-height:0}
 .chart-wrap canvas{width:100%!important;height:100%!important}
 
-.qd-header{background:#13131a;border-bottom:1px solid #1e1e2e;padding:12px 20px;display:flex;align-items:center;gap:14px}
+.qd-header{background:#13131a;border-bottom:1px solid #1e1e2e;padding:12px 20px;display:flex;align-items:center;gap:14px;flex-shrink:0}
 .qd-title{font-size:1rem;font-weight:700;color:#a78bfa}
 .qd-pnl{font-size:1rem;font-weight:700;margin-left:auto}
-.qd-stats-bar{display:flex;gap:8px;padding:10px 20px;border-bottom:1px solid #1e1e2e;flex-wrap:wrap}
+.qd-stats-bar{display:flex;gap:8px;padding:10px 20px;border-bottom:1px solid #1e1e2e;flex-shrink:0;flex-wrap:wrap}
 .qd-stat{background:#13131a;border-radius:8px;padding:7px 12px;text-align:center;flex:1;min-width:60px}
 .qd-stat-val{font-size:0.88rem;font-weight:700}
 .qd-stat-lbl{font-size:0.56rem;color:#475569;text-transform:uppercase;margin-top:1px}
-.qd-chart{padding:12px 20px;border-bottom:1px solid #1e1e2e}
+.qd-chart{padding:12px 20px;border-bottom:1px solid #1e1e2e;flex-shrink:0}
 .qd-chart-wrap{position:relative;height:140px}
 .qd-trades{flex:1;overflow-y:auto;padding:10px 20px}
 .qd-trade-card{background:#13131a;border:1px solid #1e1e2e;border-radius:10px;padding:11px 14px;margin-bottom:7px;cursor:pointer;display:flex;align-items:center;gap:10px}
