@@ -282,7 +282,11 @@ body.privacy .tc-fees::after,body.privacy .tc-size::after,body.privacy .tc-price
         <div class="pnl-filter-dropdown hidden" id="pnl-filter-dropdown">
           <div class="pnl-filter-option active" onclick="setPnlFilter('month',this)">This Month</div>
           <div class="pnl-filter-option" onclick="setPnlFilter('90d',this)">Last 90 Days</div>
-          <div class="pnl-filter-option" onclick="setPnlFilter('all',this)">All-Time</div>
+          <div class="pnl-filter-option" onclick="setPnlFilter('q1',this)">Q1</div>
+          <div class="pnl-filter-option" onclick="setPnlFilter('q2',this)">Q2</div>
+          <div class="pnl-filter-option" onclick="setPnlFilter('q3',this)">Q3</div>
+          <div class="pnl-filter-option" onclick="setPnlFilter('q4',this)">Q4</div>
+          <div class="pnl-filter-option" onclick="setPnlFilter('all',this)">Total P&L</div>
         </div>
       </div>
       <div class="hstat"><div class="hstat-val" id="hs-balance">$0</div><div class="hstat-lbl">Balance</div></div>
@@ -691,7 +695,13 @@ function makeChart(canvas,labels,values){
 function renderPnlChart(){
   const canvas=document.getElementById('pnl-chart');if(!canvas)return;
   const all=[];
-  Object.entries(data).forEach(([dk,dd])=>(dd.trades||[]).forEach(t=>all.push({...t,date:dk})));
+  Object.entries(data).forEach(([dk,dd])=>{
+    const d=new Date(dk+'T12:00:00');
+    if(d.getFullYear()!==qYear)return;
+    (dd.trades||[]).forEach(t=>all.push({...t,date:dk}));
+  });
+  const titleEl=document.querySelector('#page-quarterly .chart-title');
+  if(titleEl)titleEl.textContent=`Running P&L — ${qYear}`;
   if(!all.length){if(pnlChart){pnlChart.destroy();pnlChart=null;}return;}
   const{labels,values}=buildChartData(all);
   if(pnlChart)pnlChart.destroy();
@@ -930,6 +940,14 @@ function calcFilteredPnl(){
       return(new Date(dk+'T12:00:00')>=cutoff)?(dd.trades||[]):[];
     }).reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
   }
+  const qMonths={q1:[0,1,2],q2:[3,4,5],q3:[6,7,8],q4:[9,10,11]}[pnlFilterMode];
+  if(qMonths){
+    const y=currentYear;
+    return Object.entries(data).flatMap(([dk,dd])=>{
+      const d=new Date(dk+'T12:00:00');
+      return(d.getFullYear()===y&&qMonths.includes(d.getMonth()))?(dd.trades||[]):[];
+    }).reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+  }
   return Object.values(data).flatMap(d=>d.trades||[]).reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
 }
 
@@ -937,7 +955,11 @@ function getPnlLabel(){
   const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   if(pnlFilterMode==='month')return `${months[currentMonth].toUpperCase()} ${currentYear} ▾`;
   if(pnlFilterMode==='90d')return 'LAST 90 DAYS ▾';
-  return 'ALL-TIME ▾';
+  if(pnlFilterMode==='q1')return `Q1 ${currentYear} ▾`;
+  if(pnlFilterMode==='q2')return `Q2 ${currentYear} ▾`;
+  if(pnlFilterMode==='q3')return `Q3 ${currentYear} ▾`;
+  if(pnlFilterMode==='q4')return `Q4 ${currentYear} ▾`;
+  return 'TOTAL P&L ▾';
 }
 
 function togglePnlDropdown(e){
