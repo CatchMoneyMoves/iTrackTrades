@@ -78,6 +78,7 @@ a{color:#a08820;text-decoration:none}
 .tc-direction{font-size:0.6rem;padding:2px 6px;border-radius:10px;font-weight:700;letter-spacing:0.5px;font-family:ui-monospace,monospace}
 .tc-direction.long{background:rgba(4,120,87,0.10);color:#047857;border:1px solid rgba(4,120,87,0.30)}
 .tc-direction.short{background:rgba(185,28,28,0.08);color:#b91c1c;border:1px solid rgba(185,28,28,0.30)}
+.tc-held{font-size:0.6rem;padding:2px 7px;border-radius:10px;font-weight:600;letter-spacing:0.3px;font-family:ui-monospace,monospace;background:rgba(160,136,32,0.12);color:#a08820;border:1px solid rgba(160,136,32,0.30);display:inline-flex;align-items:center;gap:4px}
 .tc-source-icon{color:#0369a1;font-size:0.85rem;cursor:help}
 .tc-size{color:#57534e;font-family:ui-monospace,monospace;font-size:0.66rem}
 .tc-prices{color:#57534e;font-family:ui-monospace,monospace;font-size:0.66rem}
@@ -352,7 +353,64 @@ body.privacy .tc-prices::after{content:'••••';visibility:visible;positio
   .qd-stat{padding:5px 6px;min-width:50px}
   .qd-stat-val{font-size:0.78rem}
   .q-overview-grid{grid-template-columns:1fr}
-}</style>
+}
+/* ===== DARK THEME TOGGLE ===== */
+.theme-toggle{background:transparent;border:1px solid #a08820;color:#a08820;border-radius:7px;padding:4px 9px;cursor:pointer;font-size:0.9rem;line-height:1;margin-left:8px;transition:all 0.15s}
+.theme-toggle:hover{background:rgba(160,136,32,0.12)}
+body.dark{background:#0d0d12;color:#e2e8f0}
+body.dark .sidebar,body.dark .topbar,body.dark .cal-day,body.dark .modal,body.dark .trade-form,
+body.dark .q-overview-card,body.dark .chart-section,body.dark .qd-header,body.dark .qd-stat,
+body.dark .qd-trade-card,body.dark #login-box,body.dark #sync-indicator{background:#13131a !important}
+body.dark .sidebar,body.dark .topbar{background:#111118 !important}
+body.dark .cal-day,body.dark .trade-card,body.dark .detail-item,body.dark .sum-pill,body.dark .qoc-stat{background:#13131a !important}
+body.dark .trade-card,body.dark .detail-item,body.dark .sum-pill,body.dark .qoc-stat{background:#0d0d12 !important}
+body.dark .sidebar-item:hover,body.dark .sidebar-item.active,body.dark .nav-btn,body.dark .export-btn,
+body.dark .import-label,body.dark .clear-btn,body.dark .logout-btn,body.dark .filter-btn,body.dark .tag-btn,
+body.dark .qd-select-btn,body.dark .fg input,body.dark .fg select,body.dark .fg textarea,
+body.dark .privacy-toggle,body.dark .theme-toggle{background:#1e1e2e !important;color:#e2e8f0}
+body.dark .fg input,body.dark .fg select,body.dark .fg textarea{border-color:#2d2d3d}
+body.dark *{border-color:#1e1e2e}
+body.dark .cal-day,body.dark .trade-card,body.dark .q-overview-card,body.dark .modal,body.dark .chart-section,
+body.dark .detail-item,body.dark .sum-pill,body.dark .qd-trade-card,body.dark .qd-stat,body.dark .qoc-stat,
+body.dark .nav-btn,body.dark .export-btn,body.dark .import-label,body.dark .clear-btn,body.dark .logout-btn{border-color:#1e1e2e !important}
+/* text */
+body.dark,body.dark .hstat-val,body.dark .day-pnl,body.dark .modal-title,body.dark .detail-val,
+body.dark .cal-month,body.dark .topbar-title{color:#e2e8f0}
+body.dark .muted{color:#64748b}body.dark .neutral{color:#94a3b8}
+body.dark .day-num,body.dark .hstat-lbl,body.dark .detail-lbl,body.dark .sum-lbl,body.dark .qoc-lbl,
+body.dark .qd-stat-lbl,body.dark .cal-dow span,body.dark .sidebar-section{color:#475569}
+body.dark .sidebar-item{color:#94a3b8}
+/* accent stays gold-ish but lighten for dark readability → soft purple original */
+body.dark .purple,body.dark .sidebar-logo,body.dark .modal-title,body.dark .qoc-title,body.dark .qd-title,
+body.dark .q-year-label{color:#a78bfa}
+body.dark .today-btn,body.dark .theme-toggle{border-color:#a78bfa;color:#a78bfa}
+body.dark .today-btn:hover,body.dark .theme-toggle:hover{background:#3b1f6e}
+body.dark .cal-day.today,body.dark .cal-day:hover,body.dark .trade-card:hover,body.dark .q-overview-card:hover,
+body.dark .qd-trade-card:hover{border-color:#a78bfa !important}
+body.dark .privacy-toggle.active{background:#3b1f6e !important;color:#a78bfa;border-color:#a78bfa}
+body.dark .pnl-filter-option.active{background:#1a1228 !important;color:#a78bfa}
+body.dark .pnl-filter-dropdown{background:#13131a !important;box-shadow:0 8px 24px rgba(0,0,0,0.5)}
+body.dark .pnl-filter-option:hover{background:#1e1e2e !important;color:#e2e8f0}
+/* win/loss restore neon for dark */
+body.dark .green{color:#4ade80}body.dark .red{color:#f87171}
+body.dark .cal-day.has-win{border-left-color:#4ade80 !important}
+body.dark .cal-day.has-loss{border-left-color:#f87171 !important}
+body.dark .cal-day.has-be{border-left-color:#a78bfa !important}
+body.dark .cal-day.has-mixed{border-left-color:#fbbf24 !important}
+body.dark .day-pill.win,body.dark .badge-win{background:rgba(74,222,128,0.18) !important;color:#4ade80}
+body.dark .day-pill.loss,body.dark .badge-loss{background:rgba(248,113,113,0.18) !important;color:#f87171}
+body.dark .day-pill.be,body.dark .badge-be{background:rgba(167,139,250,0.18) !important;color:#a78bfa}
+body.dark .tc-pair,body.dark .qd-pair{color:#c4b5fd}
+body.dark .tc-fees{color:#fbbf24}
+body.dark .tc-held{background:rgba(167,139,250,0.15) !important;color:#a78bfa;border-color:rgba(167,139,250,0.35)}
+body.dark .tc-direction.long{background:rgba(74,222,128,0.15) !important;color:#4ade80;border-color:rgba(74,222,128,0.35)}
+body.dark .tc-direction.short{background:rgba(248,113,113,0.15) !important;color:#f87171;border-color:rgba(248,113,113,0.35)}
+body.dark .tc-size,body.dark .tc-prices{color:#94a3b8}
+body.dark .badge-draft{background:#0e1f33 !important;color:#06b6d4;border-color:#0e7490}
+body.dark ::-webkit-scrollbar-track{background:#0d0d12}
+body.dark ::-webkit-scrollbar-thumb{background:#2d2d3d}
+
+</style>
 </head>
 <body>
 <div id="app-loading">Loading...</div>
@@ -448,6 +506,7 @@ body.privacy .tc-prices::after{content:'••••';visibility:visible;positio
         <button class="nav-btn" onclick="changeMonth(1)">&#8250;</button>
       </div>
       <button class="today-btn" onclick="goToday()">Today</button>
+      <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle dark / light">🌙</button>
     </div>
     <div class="cal-body">
       <div class="cal-dow">
@@ -590,7 +649,9 @@ async function cloudPullAll(){
         entry_price:t.entry_price!=null?parseFloat(t.entry_price):null,
         exit_price:t.exit_price!=null?parseFloat(t.exit_price):null,
         partial_exits:t.partial_exits||[],
-        direction:t.direction||null
+        direction:t.direction||null,
+        entry_time:t.entry_time!=null?t.entry_time:null,
+        exit_time:t.exit_time!=null?t.exit_time:null
       });
     });
     if(settings){
@@ -644,7 +705,9 @@ async function cloudUpsertTrade(dk,trade){
       entry_price:trade.entry_price!=null?trade.entry_price:null,
       exit_price:trade.exit_price!=null?trade.exit_price:null,
       partial_exits:trade.partial_exits||[],
-      direction:trade.direction||null
+      direction:trade.direction||null,
+      entry_time:trade.entry_time!=null?trade.entry_time:null,
+      exit_time:trade.exit_time!=null?trade.exit_time:null
     };
     let {error}=await supabaseClient.from('trades').upsert(row);
     if(error){
@@ -702,6 +765,26 @@ async function cloudDeleteAllTrades(){
 }
 
 function autoResult(pnl){return pnl>0?'Win':pnl<0?'Loss':'Breakeven';}
+// Returns {entryDk, exitDk, days} for a trade if it was held across >1 calendar day, else null.
+function getHeldRange(t,dk){
+  let entryMs=t.entry_time?Number(t.entry_time):null;
+  let exitMs=t.exit_time?Number(t.exit_time):null;
+  // Fallback: parse "Entry M/D/YYYY..." out of the notes for older synced trades
+  if(!entryMs && t.notes){
+    const m=t.notes.match(/Entry\s+(\d{1,2}\/\d{1,2}\/\d{4}[^·]*)/);
+    if(m){const d=new Date(m[1].trim());if(!isNaN(d))entryMs=d.getTime();}
+  }
+  if(!entryMs)return null;
+  const entryD=new Date(entryMs);
+  const entryDk=`${entryD.getFullYear()}-${String(entryD.getMonth()+1).padStart(2,'0')}-${String(entryD.getDate()).padStart(2,'0')}`;
+  const exitDk=dk; // trade is filed on its exit day
+  if(entryDk===exitDk)return null;
+  // whole-day difference
+  const a=new Date(entryDk+'T00:00:00'), b=new Date(exitDk+'T00:00:00');
+  const days=Math.round((b-a)/86400000);
+  const fmtShort=(s)=>{const d=new Date(s+'T12:00:00');return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});};
+  return {entryDk,exitDk,days,label:`Entry ${fmtShort(entryDk)} → Exit ${fmtShort(exitDk)}`};
+}
 function getAccountSize(){
   const all=Object.values(data).flatMap(d=>d.trades||[]);
   const hlPnl=all.filter(t=>t.source==='hyperliquid').reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
@@ -892,6 +975,11 @@ async function init(){
     document.body.classList.add('privacy');
     const btn=document.getElementById('privacy-toggle');
     if(btn){btn.textContent='%';btn.classList.add('active');}
+  }
+  if(localStorage.getItem('tj2_theme')==='dark'){
+    document.body.classList.add('dark');
+    const tb=document.getElementById('theme-toggle');
+    if(tb)tb.textContent='☀️';
   }
   renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();renderHlStatus();
   try{history.replaceState({page:'calendar'},'','');}catch(e){}
@@ -1377,6 +1465,7 @@ function renderLoggedTrades(){
         ${t.source==='hyperliquid'?`<span class="tc-source-icon" title="Auto-synced from Hyperliquid">⚡</span>`:''}
         <span class="tc-pair">${t.pair||'—'}</span>
         ${t.direction?`<span class="tc-direction ${t.direction==='Long'?'long':'short'}">${t.direction==='Long'?'▲ LONG':'▼ SHORT'}</span>`:''}
+        ${(()=>{const h=getHeldRange(t,activeDate);return h?`<span class="tc-held" title="Held ${h.days} day${h.days>1?'s':''}">⏱ ${h.label}</span>`:'';})()}
         ${t.fees?`<span class="tc-fees">−$${parseFloat(t.fees).toFixed(2)} fees</span>`:''}
         ${t.is_draft?`<span class="badge-draft">DRAFT</span>`:''}
         ${t.result==='Open'?`<span class="badge-open">● OPEN</span>`:(t.result?`<span class="badge-${t.result==='Win'?'win':t.result==='Loss'?'loss':'be'}">${t.result}</span>`:'')}
@@ -1435,6 +1524,7 @@ function openTradeDetail(dk,idx){
     <div class="detail-grid">
       <div class="detail-item"><div class="detail-lbl">Result</div><div class="detail-val ${t.result==='Win'?'green':t.result==='Loss'?'red':'purple'}">${t.result||'—'}</div></div>
       ${t.direction?`<div class="detail-item"><div class="detail-lbl">Direction</div><div class="detail-val ${t.direction==='Long'?'green':'red'}">${t.direction==='Long'?'▲ Long':'▼ Short'}</div></div>`:''}
+      ${(()=>{const h=getHeldRange(t,dk);return h?`<div class="detail-item" style="grid-column:span 2"><div class="detail-lbl">Hold Period · ${h.days} day${h.days>1?'s':''}</div><div class="detail-val" style="color:#a08820">⏱ ${h.label}</div></div>`:'';})()}
       <div class="detail-item"><div class="detail-lbl">Net P&L</div><div class="detail-val ${pnlClass(t.pnl)}">${isOpen?'—':pnlStr(t.pnl)}</div></div>
       ${realizedHtml}
       ${t.fees?`<div class="detail-item"><div class="detail-lbl">Fees / Commission</div><div class="detail-val" style="color:#b45309">−$${parseFloat(t.fees).toFixed(2)}</div></div>`:''}
@@ -1765,6 +1855,17 @@ function getPnlLabel(){
   if(pnlFilterMode==='q3')return `Q3 ${currentYear} ▾`;
   if(pnlFilterMode==='q4')return `Q4 ${currentYear} ▾`;
   return 'TOTAL P&L ▾';
+}
+
+function toggleTheme(){
+  const dark=document.body.classList.toggle('dark');
+  try{localStorage.setItem('tj2_theme',dark?'dark':'light');}catch(e){}
+  const btn=document.getElementById('theme-toggle');
+  if(btn)btn.textContent=dark?'☀️':'🌙';
+  if(pnlChart)renderPnlChart();
+  if(qdChart&&document.getElementById('page-qdetail').classList.contains('active')){
+    // re-render quarter chart colors if needed (chart lines read CSS-independent hexes, fine to leave)
+  }
 }
 
 function togglePrivacy(){
@@ -2229,6 +2330,8 @@ async function syncHyperliquid(){
         t.source='hyperliquid';
         t.is_draft=false;
         t.direction=g.direction==='long'?'Long':'Short';
+        t.entry_time=g.entryTime||t.entry_time||null;
+        t.exit_time=g.exitTime||t.exit_time||null;
         if(existing.dk!==dk){
           data[existing.dk].trades.splice(existing.idx,1);
           if(!data[existing.dk].trades.length)delete data[existing.dk];
@@ -2256,7 +2359,9 @@ async function syncHyperliquid(){
           entry_price:parseFloat(g.entryPrice.toFixed(8)),
           exit_price:parseFloat(g.exitPrice.toFixed(8)),
           partial_exits:g.partial_exits||[],
-          direction:g.direction==='long'?'Long':'Short'
+          direction:g.direction==='long'?'Long':'Short',
+          entry_time:g.entryTime||null,
+          exit_time:g.exitTime||null
         };
         if(!data[dk])data[dk]={trades:[]};
         data[dk].trades.push(trade);
