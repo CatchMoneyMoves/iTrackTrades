@@ -2417,6 +2417,7 @@ async function syncHyperliquid(){
         t.is_draft=true;
         t.result='Open';
         t.direction=g.direction==='long'?'Long':'Short';
+        t.entry_time=g.entryTime||t.entry_time||null;
         await cloudUpsertTrade(existing.dk,t);
         updatedOpen++;
       } else {
@@ -2438,7 +2439,9 @@ async function syncHyperliquid(){
           entry_price:parseFloat(g.entryPrice.toFixed(8)),
           exit_price:null,
           partial_exits:g.partial_exits||[],
-          direction:g.direction==='long'?'Long':'Short'
+          direction:g.direction==='long'?'Long':'Short',
+          entry_time:g.entryTime||null,
+          exit_time:null
         };
         if(!data[dk])data[dk]={trades:[]};
         data[dk].trades.push(trade);
