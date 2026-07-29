@@ -16,6 +16,8 @@
   });
   let currentUser = null;
   let syncReady = false;
+  let showArchived = false; // when false, archived trades are hidden from all views
+  try{ showArchived = localStorage.getItem('tj2_show_archived')==='1'; }catch(e){}
 </script>
 <title>Trading Journal</title>
 <style>
@@ -475,6 +477,9 @@ body.dark ::-webkit-scrollbar-thumb{background:#333}
     <div class="sidebar-item" id="nav-quarterly" onclick="showPage('quarterly',this)">
       <span style="font-size:13px;flex-shrink:0">📊</span> Performance
     </div>
+    <div class="sidebar-item" id="nav-settings" onclick="showPage('settings',this)">
+      <span style="font-size:13px;flex-shrink:0">⚙️</span> Settings
+    </div>
     <hr class="sidebar-divider">
     <div class="sidebar-section">Data</div>
     <button class="export-btn" onclick="exportData()"><span style="font-size:12px;flex-shrink:0">⬇️</span> Export Data</button>
@@ -583,6 +588,44 @@ body.dark ::-webkit-scrollbar-thumb{background:#333}
     </div>
     <div class="filter-bar" id="filter-bar"></div>
     <div class="qd-trades" id="qd-trades"></div>
+  </div>
+
+  <div class="page" id="page-settings">
+    <div style="max-width:640px">
+      <div style="background:#fff;border:1px solid #e7e5e0;border-radius:14px;padding:20px;margin-bottom:16px">
+        <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;color:#a08820;font-weight:600;margin-bottom:10px">Account</div>
+        <div style="font-size:0.9rem;color:#1c1917">Signed in as</div>
+        <div id="settings-account" style="font-size:1.05rem;font-weight:600;color:#1c1917;margin-top:2px">—</div>
+      </div>
+
+      <div style="background:#fff;border:1px solid #e7e5e0;border-radius:14px;padding:20px">
+        <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;color:#a08820;font-weight:600;margin-bottom:6px">Archive Trades</div>
+        <div style="font-size:0.82rem;color:#78716c;margin-bottom:16px;line-height:1.5">Hide a date range of trades from the calendar, performance, and stats. Archived trades are <b>not deleted</b> — they stay in the database and in every backup, and you can unhide them anytime.</div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
+          <div>
+            <label style="display:block;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.05em;color:#78716c;margin-bottom:4px">From</label>
+            <input type="date" id="archive-from" style="padding:8px 10px;border:1px solid #d6d3cd;border-radius:8px;font-size:0.85rem;font-family:inherit">
+          </div>
+          <div>
+            <label style="display:block;font-size:0.68rem;text-transform:uppercase;letter-spacing:0.05em;color:#78716c;margin-bottom:4px">To</label>
+            <input type="date" id="archive-to" style="padding:8px 10px;border:1px solid #d6d3cd;border-radius:8px;font-size:0.85rem;font-family:inherit">
+          </div>
+          <button onclick="archiveDateRange()" style="background:#1c1917;color:#fafaf7;border:none;border-radius:8px;padding:9px 16px;font-size:0.85rem;font-weight:600;cursor:pointer;font-family:inherit">Hide this range</button>
+          <button onclick="unarchiveDateRange()" style="background:#fff;color:#1c1917;border:1px solid #d6d3cd;border-radius:8px;padding:9px 16px;font-size:0.85rem;font-weight:600;cursor:pointer;font-family:inherit">Unhide this range</button>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid #f0eee8;padding-top:14px">
+          <div>
+            <div style="font-size:0.85rem;color:#1c1917;font-weight:500">Show archived trades</div>
+            <div id="archive-count" style="font-size:0.75rem;color:#78716c;margin-top:2px">0 trades archived</div>
+          </div>
+          <label style="cursor:pointer;display:inline-flex;align-items:center;gap:8px">
+            <input type="checkbox" id="show-archived-toggle" onchange="toggleShowArchived(this.checked)" style="width:18px;height:18px;cursor:pointer">
+          </label>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="overlay-wrap" id="overlay" onclick="closeOverlay(event)">
@@ -696,7 +739,8 @@ async function cloudPullAll(){
         partial_exits:t.partial_exits||[],
         direction:t.direction||null,
         entry_time:t.entry_time!=null?t.entry_time:null,
-        exit_time:t.exit_time!=null?t.exit_time:null
+        exit_time:t.exit_time!=null?t.exit_time:null,
+        archived:!!t.archived
       });
     });
     if(settings){
@@ -752,12 +796,19 @@ async function cloudUpsertTrade(dk,trade){
       partial_exits:trade.partial_exits||[],
       direction:trade.direction||null,
       entry_time:trade.entry_time!=null?trade.entry_time:null,
-      exit_time:trade.exit_time!=null?trade.exit_time:null
+      exit_time:trade.exit_time!=null?trade.exit_time:null,
+      archived:!!trade.archived
     };
     let {error}=await supabaseClient.from('trades').upsert(row);
     if(error){
-      // Fallback: if 'direction' column doesn't exist yet in Supabase, retry without it
-      if(String(error.message||'').toLowerCase().includes('direction')){
+      const msg=String(error.message||'').toLowerCase();
+      // Fallback: if a newer column doesn't exist yet in Supabase, retry without it
+      if(msg.includes('archived')){
+        delete row.archived;
+        const retry=await supabaseClient.from('trades').upsert(row);
+        if(retry.error)throw retry.error;
+        console.warn("Supabase 'archived' column missing — saved without it. Add column: ALTER TABLE trades ADD COLUMN archived boolean DEFAULT false;");
+      } else if(msg.includes('direction')){
         delete row.direction;
         const retry=await supabaseClient.from('trades').upsert(row);
         if(retry.error)throw retry.error;
@@ -1045,9 +1096,10 @@ function showPage(id,el,fromPop){
   document.querySelectorAll('.sidebar-item').forEach(i=>i.classList.remove('active'));
   document.getElementById('page-'+id).classList.add('active');
   if(el)el.classList.add('active');
-  const titles={calendar:'Calendar',quarterly:'Performance',qdetail:''};
+  const titles={calendar:'Calendar',quarterly:'Performance',qdetail:'',settings:'Settings'};
   if(titles[id]!==undefined)document.getElementById('topbar-title').textContent=titles[id];
   if(id==='quarterly'){renderQuarterlyOverview();setTimeout(renderPnlChart,50);}
+  if(id==='settings')renderSettings();
   if(!fromPop){
     try{history.pushState({page:id},'','');}catch(e){}
   }
@@ -1096,7 +1148,8 @@ async function buildFullBackup(){
       partial_exits:t.partial_exits||[],
       direction:t.direction||null,
       entry_time:t.entry_time!=null?t.entry_time:null,
-      exit_time:t.exit_time!=null?t.exit_time:null
+      exit_time:t.exit_time!=null?t.exit_time:null,
+      archived:!!t.archived
     });
   });
   return {data:fresh,quickLinks,customPairs};
@@ -1252,6 +1305,82 @@ function changeMonth(dir){
 }
 function goToday(){const n=new Date();currentYear=n.getFullYear();currentMonth=n.getMonth();renderCalendar();if(pnlFilterMode==='month')updateStats();}
 
+// ── Archive filtering ──
+// Returns the trades for a day, excluding archived ones unless showArchived is on.
+function visibleTrades(dk){
+  const arr=(data[dk]||{}).trades||[];
+  return showArchived?arr:arr.filter(t=>!t.archived);
+}
+// Count of archived trades across the whole journal.
+function archivedCount(){
+  let n=0;
+  Object.values(data).forEach(d=>(d.trades||[]).forEach(t=>{if(t.archived)n++;}));
+  return n;
+}
+
+// ── Settings page ──
+function renderSettings(){
+  const acct=document.getElementById('settings-account');
+  if(acct)acct.textContent=(currentUser&&currentUser.email)?currentUser.email:'Not signed in';
+  const cnt=document.getElementById('archive-count');
+  if(cnt){const n=archivedCount();cnt.textContent=`${n} trade${n===1?'':'s'} archived`;}
+  const tog=document.getElementById('show-archived-toggle');
+  if(tog)tog.checked=showArchived;
+}
+
+function toggleShowArchived(on){
+  showArchived=!!on;
+  try{localStorage.setItem('tj2_show_archived',showArchived?'1':'0');}catch(e){}
+  renderCalendar();renderQuarterlyOverview();updateStats();renderSettings();
+  if(pnlFilterMode)setTimeout(renderPnlChart,50);
+}
+
+// Set archived=flag on every trade whose date falls in [from,to] inclusive,
+// persist to cloud, and refresh views. Never deletes anything.
+async function setArchivedForRange(fromStr,toStr,flag){
+  if(!fromStr||!toStr){alert('Pick both a From and To date first.');return;}
+  if(fromStr>toStr){alert('The From date must be on or before the To date.');return;}
+  let changed=0;
+  const touched=[];
+  for(const dk of Object.keys(data)){
+    if(dk>=fromStr&&dk<=toStr){
+      for(const t of (data[dk].trades||[])){
+        if(!!t.archived!==flag){
+          t.archived=flag;
+          changed++;
+          touched.push([dk,t]);
+        }
+      }
+    }
+  }
+  if(!changed){alert(flag?'No visible trades found in that date range to hide.':'No archived trades found in that date range to unhide.');return;}
+  saveData();
+  showSyncStatus('syncing','⟳ Saving...');
+  let failed=0;
+  for(const [dk,t] of touched){
+    try{await cloudUpsertTrade(dk,t);}catch(e){failed++;console.error('archive save failed',dk,t.id,e);}
+  }
+  renderCalendar();renderQuarterlyOverview();updateStats();renderSettings();
+  if(failed>0){
+    showSyncStatus('error','⚠ Partial save');
+    alert(`${changed-failed} of ${changed} trades updated. ${failed} failed to save to cloud — try again.`);
+  }else{
+    showSyncStatus('synced','✓ Saved');
+    alert(`${changed} trade${changed===1?'':'s'} ${flag?'archived (hidden)':'unarchived (shown)'}.`);
+  }
+}
+
+function archiveDateRange(){
+  const from=document.getElementById('archive-from').value;
+  const to=document.getElementById('archive-to').value;
+  setArchivedForRange(from,to,true);
+}
+function unarchiveDateRange(){
+  const from=document.getElementById('archive-from').value;
+  const to=document.getElementById('archive-to').value;
+  setArchivedForRange(from,to,false);
+}
+
 function renderCalendar(){
   const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
   document.getElementById('cal-month-label').textContent=months[currentMonth]+' '+currentYear;
@@ -1265,7 +1394,7 @@ function renderCalendar(){
     const el=document.createElement('div');
     if(d<1||d>daysInMonth){el.className='cal-day empty';grid.appendChild(el);continue;}
     const dk=`${currentYear}-${String(currentMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const trades=(data[dk]||{}).trades||[];
+    const trades=visibleTrades(dk);
     el.className='cal-day';
     if(today.getFullYear()===currentYear&&today.getMonth()===currentMonth&&today.getDate()===d)el.classList.add('today');
     if(trades.length){
@@ -1334,7 +1463,7 @@ function renderPnlChart(){
   Object.entries(data).forEach(([dk,dd])=>{
     const d=new Date(dk+'T12:00:00');
     if(d.getFullYear()!==qYear)return;
-    (dd.trades||[]).forEach(t=>all.push({...t,date:dk}));
+    visibleTrades(dk).forEach(t=>all.push({...t,date:dk}));
   });
   const titleEl=document.querySelector('#page-quarterly .chart-title');
   if(titleEl)titleEl.textContent=`Running P&L — ${qYear}`;
@@ -1352,7 +1481,7 @@ function renderQuarterlyOverview(){
     const trades=[];
     Object.entries(data).forEach(([dk,dd])=>{
       const d=new Date(dk+'T12:00:00');
-      if(d.getFullYear()===qYear&&q.months.includes(d.getMonth()))(dd.trades||[]).forEach(t=>trades.push({...t,date:dk}));
+      if(d.getFullYear()===qYear&&q.months.includes(d.getMonth()))visibleTrades(dk).forEach(t=>trades.push({...t,date:dk}));
     });
     const pnl=trades.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
     const wins=trades.filter(t=>t.result==='Win').length;
@@ -2065,13 +2194,13 @@ function calcFilteredPnl(){
     const y=currentYear,m=currentMonth;
     return Object.entries(data).flatMap(([dk,dd])=>{
       const d=new Date(dk+'T12:00:00');
-      return(d.getFullYear()===y&&d.getMonth()===m)?(dd.trades||[]):[];
+      return(d.getFullYear()===y&&d.getMonth()===m)?visibleTrades(dk):[];
     }).reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
   }
   if(pnlFilterMode==='90d'){
     const cutoff=new Date(Date.now()-90*24*60*60*1000);
     return Object.entries(data).flatMap(([dk,dd])=>{
-      return(new Date(dk+'T12:00:00')>=cutoff)?(dd.trades||[]):[];
+      return(new Date(dk+'T12:00:00')>=cutoff)?visibleTrades(dk):[];
     }).reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
   }
   const qMonths={q1:[0,1,2],q2:[3,4,5],q3:[6,7,8],q4:[9,10,11]}[pnlFilterMode];
@@ -2079,10 +2208,10 @@ function calcFilteredPnl(){
     const y=currentYear;
     return Object.entries(data).flatMap(([dk,dd])=>{
       const d=new Date(dk+'T12:00:00');
-      return(d.getFullYear()===y&&qMonths.includes(d.getMonth()))?(dd.trades||[]):[];
+      return(d.getFullYear()===y&&qMonths.includes(d.getMonth()))?visibleTrades(dk):[];
     }).reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
   }
-  return Object.values(data).flatMap(d=>d.trades||[]).reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+  return Object.keys(data).flatMap(dk=>visibleTrades(dk)).reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
 }
 
 function getPnlLabel(){
@@ -2150,7 +2279,7 @@ function setPnlFilter(mode,el){
 }
 
 function updateStats(){
-  const all=Object.values(data).flatMap(d=>d.trades||[]);
+  const all=Object.keys(data).flatMap(dk=>visibleTrades(dk));
   const filteredPnl=calcFilteredPnl();
   const hlPnl=all.filter(t=>t.source==='hyperliquid').reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
   const wins=all.filter(t=>t.result==='Win').length;
