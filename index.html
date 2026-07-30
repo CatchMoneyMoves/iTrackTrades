@@ -1236,14 +1236,6 @@ async function importData(e){
 async function clearData(){
   if(!confirm('Delete ALL trade data from cloud?'))return;
   if(!confirm('Last warning — this permanently deletes everything from cloud too. Continue?'))return;
-  // Safety net: auto-download a complete fresh backup BEFORE deleting anything.
-  showSyncStatus('syncing','⟳ Backing up first...');
-  const safety=await buildFullBackup();
-  if(safety){
-    downloadBackupObject(safety,'-BEFORE-CLEAR');
-  }else{
-    if(!confirm('Could not make a safety backup first. Delete everything anyway? (cannot be undone)'))return;
-  }
   showSyncStatus('syncing','⟳ Clearing...');
   await cloudDeleteAllTrades();
   data={};localStorage.removeItem('tj2_data');
@@ -2291,7 +2283,7 @@ function updateStats(){
   const pnlLbl=document.getElementById('hs-pnl-lbl');
   if(pnlEl){
     pnlEl.textContent=pnlStr(filteredPnl);
-    pnlEl.style.color=filteredPnl>0?'#047857':filteredPnl<0?'#b91c1c':'#78716c';
+    pnlEl.style.color='#d4af37';
   }
   if(pnlLbl)pnlLbl.textContent=getPnlLabel();
   const hlBalance=startingBalance+hlPnl;
