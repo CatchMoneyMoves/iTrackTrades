@@ -490,10 +490,8 @@ body.dark ::-webkit-scrollbar-thumb{background:#3a4d6b}
     <button class="logout-btn" onclick="doLogout()"><span style="font-size:12px;flex-shrink:0">🔓</span> Sign Out</button>
     <hr class="sidebar-divider">
     <div class="sidebar-section">Hyperliquid</div>
-    <div class="hl-wallet-row" id="hl-wallet-row" onclick="setHlWallet()" title="Click to set or change wallet">
-      <span class="hl-addr" id="hl-addr">Set wallet…</span>
-      <span class="hl-edit">✏️</span>
-    </div>
+    <div id="hl-wallet-list"></div>
+    <div class="quick-link-add" onclick="addHlWallet()" title="Add another Hyperliquid wallet"><span style="font-size:12px;flex-shrink:0">+</span> Add wallet</div>
     <button class="hl-sync-btn" id="hl-sync-btn" onclick="syncHyperliquid()"><span style="font-size:12px;flex-shrink:0">🔄</span> Sync now</button>
     <div class="hl-last-sync" id="hl-last-sync"></div>
     <hr class="sidebar-divider">
@@ -684,7 +682,7 @@ let qYear=new Date().getFullYear();
 let sidebarHidden=false;
 let activePairFilter=null;
 let startingBalance=0;
-let hlWallet='';
+let hlWallets=[]; // array of wallet address strings — synced together, merged into one calendar
 let hlLastSync=0;
 let hlSyncing=false;
 let pnlFilterMode='month';
@@ -746,7 +744,10 @@ async function cloudPullAll(){
     if(settings){
       quickLinks=settings.quick_links||[];
       customPairs=settings.custom_pairs||[];
-      hlWallet=settings.hl_wallet||'';
+      // Multi-wallet: read the new list; if it's empty but the legacy single
+      // hl_wallet exists, migrate it into the list so nothing is lost.
+      hlWallets=Array.isArray(settings.hl_wallets)?settings.hl_wallets.filter(Boolean):[];
+      if(!hlWallets.length && settings.hl_wallet)hlWallets=[settings.hl_wallet];
       startingBalance=settings.starting_balance!=null?parseFloat(settings.starting_balance)||0:0;
       hlLastSync=settings.hl_last_sync!=null?parseInt(settings.hl_last_sync)||0:0;
     }
@@ -756,7 +757,7 @@ async function cloudPullAll(){
     safeSetItem('tj2_links',JSON.stringify(quickLinks));
     safeSetItem('tj2_pairs',JSON.stringify(customPairs));
     safeSetItem('tj2_balance',String(startingBalance));
-    safeSetItem('tj2_hl_wallet',hlWallet);
+    safeSetItem('tj2_hl_wallets',JSON.stringify(hlWallets));
     safeSetItem('tj2_hl_lastsync',String(hlLastSync));
     syncReady=true;
     showSyncStatus('synced','✓ Synced');
@@ -765,7 +766,8 @@ async function cloudPullAll(){
     data=JSON.parse(localStorage.getItem('tj2_data')||'{}');
     quickLinks=JSON.parse(localStorage.getItem('tj2_links')||'[]');
     customPairs=JSON.parse(localStorage.getItem('tj2_pairs')||'[]');
-    hlWallet=localStorage.getItem('tj2_hl_wallet')||'';
+    try{hlWallets=JSON.parse(localStorage.getItem('tj2_hl_wallets')||'[]');}catch(e){hlWallets=[];}
+    if(!hlWallets.length){const legacy=localStorage.getItem('tj2_hl_wallet');if(legacy)hlWallets=[legacy];}
     startingBalance=parseFloat(localStorage.getItem('tj2_balance')||'0')||0;
     hlLastSync=parseInt(localStorage.getItem('tj2_hl_lastsync')||'0',10)||0;
     if(!customPairs.length)customPairs=['XAUUSD','EURUSD','GBPUSD','USDJPY','USDCAD','AUDUSD','NZDUSD','US30','NAS100','SPX500'];
@@ -842,13 +844,22 @@ async function cloudSaveSettings(){
       user_id:currentUser.id,
       quick_links:quickLinks,
       custom_pairs:customPairs,
-      hl_wallet:hlWallet||null,
+      hl_wallets:hlWallets,
+      hl_wallet:hlWallets[0]||null, // keep legacy single field populated for backward compat
       starting_balance:startingBalance||0,
       hl_last_sync:hlLastSync||0,
       updated_at:new Date().toISOString()
     };
-    const {error}=await supabaseClient.from('user_settings').upsert(row);
-    if(error)throw error;
+    let {error}=await supabaseClient.from('user_settings').upsert(row);
+    if(error){
+      // Fallback: if the hl_wallets column doesn't exist yet, retry without it
+      if(String(error.message||'').toLowerCase().includes('hl_wallets')){
+        delete row.hl_wallets;
+        const retry=await supabaseClient.from('user_settings').upsert(row);
+        if(retry.error)throw retry.error;
+        console.warn("Supabase 'hl_wallets' column missing — only the first wallet was saved. Add column: ALTER TABLE user_settings ADD COLUMN hl_wallets jsonb DEFAULT '[]';");
+      } else throw error;
+    }
   }catch(err){console.error('Settings save failed:',err);}
 }
 
@@ -2331,15 +2342,19 @@ async function editStartingBalance(){
 }
 
 function renderHlStatus(){
-  const addrEl=document.getElementById('hl-addr');
-  if(addrEl){
-    if(hlWallet){
-      const shortAddr=hlWallet.slice(0,6)+'…'+hlWallet.slice(-4);
-      addrEl.textContent=shortAddr;
-      addrEl.title=hlWallet;
+  const listEl=document.getElementById('hl-wallet-list');
+  if(listEl){
+    if(!hlWallets.length){
+      listEl.innerHTML=`<div class="hl-wallet-row" onclick="addHlWallet()" title="Click to add your Hyperliquid wallet"><span class="hl-addr" style="color:#a8a29e">Set wallet…</span><span class="hl-edit">✏️</span></div>`;
     } else {
-      addrEl.textContent='Set wallet…';
-      addrEl.title='Click to add your Hyperliquid wallet';
+      listEl.innerHTML=hlWallets.map((w,i)=>{
+        const short=w.slice(0,6)+'…'+w.slice(-4);
+        return `<div class="hl-wallet-row" title="${w}">
+          <span class="hl-addr" onclick="editHlWallet(${i})">${short}</span>
+          <button class="ql-icon-btn" onclick="editHlWallet(${i})" title="Edit" style="color:#a08820">✏️</button>
+          <button class="ql-icon-btn" onclick="removeHlWallet(${i})" title="Remove" style="color:#b91c1c">×</button>
+        </div>`;
+      }).join('');
     }
   }
   const lastEl=document.getElementById('hl-last-sync');
@@ -2358,19 +2373,57 @@ function renderHlStatus(){
   }
 }
 
-async function setHlWallet(){
-  const cur=hlWallet||'';
-  const input=prompt('Hyperliquid wallet address (0x...):',cur);
+function isValidHlWallet(v){
+  return /^0x[a-fA-F0-9]{40}$/.test(v);
+}
+
+async function persistHlWallets(){
+  safeSetItem('tj2_hl_wallets',JSON.stringify(hlWallets));
+  await cloudSaveSettings();
+  renderHlStatus();
+}
+
+async function addHlWallet(){
+  const input=prompt('Add a Hyperliquid wallet address (0x...):','');
   if(input===null)return;
   const v=input.trim();
-  if(v && !/^0x[a-fA-F0-9]{40}$/.test(v)){
+  if(!v)return;
+  if(!isValidHlWallet(v)){
     alert('That doesn\'t look like a valid wallet address. It should start with 0x and be 42 characters total.');
     return;
   }
-  hlWallet=v;
-  safeSetItem('tj2_hl_wallet',hlWallet);
-  await cloudSaveSettings();
-  renderHlStatus();
+  if(hlWallets.some(w=>w.toLowerCase()===v.toLowerCase())){
+    alert('That wallet is already in your list.');
+    return;
+  }
+  hlWallets.push(v);
+  await persistHlWallets();
+}
+
+async function editHlWallet(i){
+  const cur=hlWallets[i]||'';
+  const input=prompt('Edit Hyperliquid wallet address (0x...):',cur);
+  if(input===null)return;
+  const v=input.trim();
+  if(!v){await removeHlWallet(i);return;}
+  if(!isValidHlWallet(v)){
+    alert('That doesn\'t look like a valid wallet address. It should start with 0x and be 42 characters total.');
+    return;
+  }
+  if(hlWallets.some((w,idx)=>idx!==i&&w.toLowerCase()===v.toLowerCase())){
+    alert('That wallet is already in your list.');
+    return;
+  }
+  hlWallets[i]=v;
+  await persistHlWallets();
+}
+
+async function removeHlWallet(i){
+  const w=hlWallets[i];
+  if(!w)return;
+  if(!confirm(`Remove wallet ${w.slice(0,6)}…${w.slice(-4)} from sync?\n\nTrades already synced from it stay in your journal — this only stops pulling new ones.`))return;
+  hlWallets.splice(i,1);
+  await persistHlWallets();
 }
 
 async function hlInfoRequest(payload,dex){
@@ -2578,26 +2631,35 @@ function findExistingTradeByFillIds(fillIds){
 }
 
 async function syncHyperliquid(){
-  if(!hlWallet){
-    alert('Set your Hyperliquid wallet address first (click "Set wallet…" in the sidebar).');
+  if(!hlWallets.length){
+    alert('Add a Hyperliquid wallet address first (click "+ Add wallet" in the sidebar).');
     return;
   }
   if(hlSyncing)return;
   const btn=document.getElementById('hl-sync-btn');
   hlSyncing=true;
   if(btn)btn.disabled=true;
-  showSyncStatus('syncing','⟳ Pulling Hyperliquid…');
+  showSyncStatus('syncing',`⟳ Pulling Hyperliquid (${hlWallets.length} wallet${hlWallets.length>1?'s':''})…`);
   try{
     let fills=[];
     let openPositions={};
-    for(const dex of HL_DEXES){
-      try{
-        const dexFills=await fetchHyperliquidFills(hlWallet,dex);
-        fills=fills.concat(dexFills);
-        const dexPositions=await fetchHyperliquidState(hlWallet,dex);
-        Object.assign(openPositions,dexPositions);
-      }catch(err){
-        console.warn(`HL fetch failed for dex='${dex||'main'}':`,err);
+    // Pull from EVERY wallet in the list and merge. Fill IDs (tid) are
+    // globally unique on Hyperliquid, so trades from different wallets can't
+    // collide when deduped below. Open positions are keyed by coin — if two
+    // wallets hold the same coin, sizes are summed so the grouper still sees
+    // a live position for that coin.
+    for(const wallet of hlWallets){
+      for(const dex of HL_DEXES){
+        try{
+          const dexFills=await fetchHyperliquidFills(wallet,dex);
+          fills=fills.concat(dexFills);
+          const dexPositions=await fetchHyperliquidState(wallet,dex);
+          for(const coin in dexPositions){
+            openPositions[coin]=(openPositions[coin]||0)+dexPositions[coin];
+          }
+        }catch(err){
+          console.warn(`HL fetch failed for wallet=${wallet.slice(0,6)}… dex='${dex||'main'}':`,err);
+        }
       }
     }
     fills=dedupeHyperliquidFills(fills);
