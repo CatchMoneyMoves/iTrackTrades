@@ -2192,19 +2192,23 @@ function closeLightbox(){
   viewport.addEventListener('touchend',lbTouchEnd);
 })();
 
-function calcFilteredPnl(){
+// Returns the trades that fall within the currently-selected PnL period
+// filter (this month / last 90 days / a quarter / total). PnL, win rate,
+// and trade count all read from this so the top stats stay consistent with
+// whatever range is selected.
+function filteredTrades(){
   if(pnlFilterMode==='month'){
     const y=currentYear,m=currentMonth;
     return Object.entries(data).flatMap(([dk,dd])=>{
       const d=new Date(dk+'T12:00:00');
       return(d.getFullYear()===y&&d.getMonth()===m)?visibleTrades(dk):[];
-    }).reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+    });
   }
   if(pnlFilterMode==='90d'){
     const cutoff=new Date(Date.now()-90*24*60*60*1000);
     return Object.entries(data).flatMap(([dk,dd])=>{
       return(new Date(dk+'T12:00:00')>=cutoff)?visibleTrades(dk):[];
-    }).reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+    });
   }
   const qMonths={q1:[0,1,2],q2:[3,4,5],q3:[6,7,8],q4:[9,10,11]}[pnlFilterMode];
   if(qMonths){
@@ -2212,9 +2216,13 @@ function calcFilteredPnl(){
     return Object.entries(data).flatMap(([dk,dd])=>{
       const d=new Date(dk+'T12:00:00');
       return(d.getFullYear()===y&&qMonths.includes(d.getMonth()))?visibleTrades(dk):[];
-    }).reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+    });
   }
-  return Object.keys(data).flatMap(dk=>visibleTrades(dk)).reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+  return Object.keys(data).flatMap(dk=>visibleTrades(dk));
+}
+
+function calcFilteredPnl(){
+  return filteredTrades().reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
 }
 
 function getPnlLabel(){
@@ -2283,11 +2291,14 @@ function setPnlFilter(mode,el){
 
 function updateStats(){
   const all=Object.keys(data).flatMap(dk=>visibleTrades(dk));
-  const filteredPnl=calcFilteredPnl();
+  const scoped=filteredTrades();
+  const filteredPnl=scoped.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
+  // HL balance is intentionally all-time — it reflects the real account, not the selected period.
   const hlPnl=all.filter(t=>t.source==='hyperliquid').reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
-  const wins=all.filter(t=>t.result==='Win').length;
-  const wr=all.length?Math.round(wins/all.length*100):null;
-  document.getElementById('hs-trades').textContent=all.length;
+  // Win rate + trade count follow the selected period, same as PnL.
+  const wins=scoped.filter(t=>t.result==='Win').length;
+  const wr=scoped.length?Math.round(wins/scoped.length*100):null;
+  document.getElementById('hs-trades').textContent=scoped.length;
   document.getElementById('hs-wr').textContent=wr!==null?wr+'%':'—';
   document.getElementById('hs-wr').style.color='#57534e';
   const pnlEl=document.getElementById('hs-pnl');
