@@ -489,9 +489,14 @@ body.dark ::-webkit-scrollbar-thumb{background:#3a4d6b}
     <div class="sidebar-section">Account</div>
     <button class="logout-btn" onclick="doLogout()"><span style="font-size:12px;flex-shrink:0">🔓</span> Sign Out</button>
     <hr class="sidebar-divider">
-    <div class="sidebar-section">Hyperliquid</div>
-    <div id="hl-wallet-list"></div>
-    <div class="quick-link-add" onclick="addHlWallet()" title="Add another Hyperliquid wallet"><span style="font-size:12px;flex-shrink:0">+</span> Add wallet</div>
+    <div class="sidebar-section hl-section-header" onclick="toggleHlWallets()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;user-select:none">
+      <span>Hyperliquid</span>
+      <span id="hl-section-chevron" style="font-size:0.7rem;opacity:0.6;transition:transform 0.15s">▸</span>
+    </div>
+    <div id="hl-wallets-wrap" style="display:none">
+      <div id="hl-wallet-list"></div>
+      <div class="quick-link-add" onclick="addHlWallet()" title="Add another Hyperliquid wallet"><span style="font-size:12px;flex-shrink:0">+</span> Add wallet</div>
+    </div>
     <button class="hl-sync-btn" id="hl-sync-btn" onclick="syncHyperliquid()"><span style="font-size:12px;flex-shrink:0">🔄</span> Sync now</button>
     <div class="hl-last-sync" id="hl-last-sync"></div>
     <hr class="sidebar-divider">
@@ -1088,7 +1093,7 @@ async function init(){
     const tb=document.getElementById('theme-toggle');
     if(tb)tb.textContent='☀️';
   }
-  renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();renderHlStatus();
+  renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();renderHlStatus();applyHlExpandedState();
   try{history.replaceState({page:'calendar'},'','');}catch(e){}
   document.addEventListener('click',()=>{const dd=document.getElementById('pnl-filter-dropdown');if(dd)dd.classList.add('hidden');});
   document.addEventListener('keydown',e=>{
@@ -2350,6 +2355,25 @@ async function editStartingBalance(){
   safeSetItem('tj2_balance',String(startingBalance));
   await cloudSaveSettings();
   updateStats();
+}
+
+function toggleHlWallets(){
+  const wrap=document.getElementById('hl-wallets-wrap');
+  const chev=document.getElementById('hl-section-chevron');
+  if(!wrap)return;
+  const showing=wrap.style.display!=='none';
+  wrap.style.display=showing?'none':'block';
+  if(chev)chev.style.transform=showing?'rotate(0deg)':'rotate(90deg)';
+  try{localStorage.setItem('tj2_hl_expanded',showing?'0':'1');}catch(e){}
+}
+
+function applyHlExpandedState(){
+  let expanded=false;
+  try{expanded=localStorage.getItem('tj2_hl_expanded')==='1';}catch(e){}
+  const wrap=document.getElementById('hl-wallets-wrap');
+  const chev=document.getElementById('hl-section-chevron');
+  if(wrap)wrap.style.display=expanded?'block':'none';
+  if(chev)chev.style.transform=expanded?'rotate(90deg)':'rotate(0deg)';
 }
 
 function renderHlStatus(){
