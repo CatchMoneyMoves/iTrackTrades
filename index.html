@@ -1492,8 +1492,8 @@ function renderQuarterlyOverview(){
       if(d.getFullYear()===qYear&&q.months.includes(d.getMonth()))visibleTrades(dk).forEach(t=>trades.push({...t,date:dk}));
     });
     const pnl=trades.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
-    const wins=trades.filter(t=>t.result==='Win').length;
-    const wr=trades.length?Math.round(wins/trades.length*100):null;
+    const wins=trades.filter(t=>(parseFloat(t.pnl)||0)>10).length;
+    const wr=winRateOf(trades);
     const card=document.createElement('div');
     card.className='q-overview-card';
     card.innerHTML=`
@@ -1515,9 +1515,9 @@ function openQuarterDetail(q,year,trades){
   currentQTrades=trades;activeSetupFilter='All';
   qdSelectMode=false;qdSelected.clear();
   const pnl=trades.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
-  const wins=trades.filter(t=>t.result==='Win').length;
-  const losses=trades.filter(t=>t.result==='Loss').length;
-  const wr=trades.length?Math.round(wins/trades.length*100):null;
+  const wins=trades.filter(t=>(parseFloat(t.pnl)||0)>10).length;
+  const losses=trades.filter(t=>(parseFloat(t.pnl)||0)<-10).length;
+  const wr=winRateOf(trades);
   const avg=trades.length?pnl/trades.length:0;
   document.getElementById('qd-title').textContent=`${q.label} ${year}`;
   document.getElementById('qd-pnl').textContent=pnlStr(pnl);
@@ -1640,9 +1640,9 @@ async function qdBulkDelete(){
   const removedKeys=new Set(toDelete);
   currentQTrades=currentQTrades.filter(t=>!removedKeys.has(`${t.date}::${t.id}`));
   const pnl=currentQTrades.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
-  const wins=currentQTrades.filter(t=>t.result==='Win').length;
-  const losses=currentQTrades.filter(t=>t.result==='Loss').length;
-  const wr=currentQTrades.length?Math.round(wins/currentQTrades.length*100):null;
+  const wins=currentQTrades.filter(t=>(parseFloat(t.pnl)||0)>10).length;
+  const losses=currentQTrades.filter(t=>(parseFloat(t.pnl)||0)<-10).length;
+  const wr=winRateOf(currentQTrades);
   const avg=currentQTrades.length?pnl/currentQTrades.length:0;
   document.getElementById('qd-pnl').textContent=pnlStr(pnl);
   document.getElementById('qd-pnl').className=`qd-pnl ${pnlClass(pnl)}`;
@@ -1687,9 +1687,9 @@ function closeModalDirect(){
 function renderDaySummary(){
   const trades=(data[activeDate]||{}).trades||[];
   const pnl=trades.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
-  const wins=trades.filter(t=>t.result==='Win').length;
-  const losses=trades.filter(t=>t.result==='Loss').length;
-  const wr=trades.length?Math.round(wins/trades.length*100):null;
+  const wins=trades.filter(t=>(parseFloat(t.pnl)||0)>10).length;
+  const losses=trades.filter(t=>(parseFloat(t.pnl)||0)<-10).length;
+  const wr=winRateOf(trades);
   document.getElementById('day-summary').innerHTML=`
     <div class="sum-pill"><div class="sum-val purple">${trades.length}</div><div class="sum-lbl">Trades</div></div>
     <div class="sum-pill"><div class="sum-val ${pnlClass(pnl)}">${pnlStr(pnl)}</div><div class="sum-lbl">P&L</div></div>
@@ -2294,6 +2294,17 @@ function setPnlFilter(mode,el){
   updateStats();
 }
 
+// Win rate for a set of trades, excluding "scratch" trades whose PnL is
+// between -$10 and +$10 inclusive (breakeven). Returns a rounded % or null
+// if there are no decisive (non-scratch) trades. Used everywhere win rate
+// is shown so all displays agree.
+function winRateOf(trades){
+  const scored=trades.filter(t=>Math.abs(parseFloat(t.pnl)||0)>10);
+  if(!scored.length)return null;
+  const wins=scored.filter(t=>(parseFloat(t.pnl)||0)>10).length;
+  return Math.round(wins/scored.length*100);
+}
+
 function updateStats(){
   const all=Object.keys(data).flatMap(dk=>visibleTrades(dk));
   const scoped=filteredTrades();
@@ -2301,8 +2312,8 @@ function updateStats(){
   // HL balance is intentionally all-time — it reflects the real account, not the selected period.
   const hlPnl=all.filter(t=>t.source==='hyperliquid').reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
   // Win rate + trade count follow the selected period, same as PnL.
-  const wins=scoped.filter(t=>t.result==='Win').length;
-  const wr=scoped.length?Math.round(wins/scoped.length*100):null;
+  // Win rate excludes "scratch" trades — see winRateOf().
+  const wr=winRateOf(scoped);
   document.getElementById('hs-trades').textContent=scoped.length;
   document.getElementById('hs-wr').textContent=wr!==null?wr+'%':'—';
   document.getElementById('hs-wr').style.color='#57534e';
