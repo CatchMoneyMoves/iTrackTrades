@@ -501,6 +501,14 @@ body.dark ::-webkit-scrollbar-thumb{background:#2c3a47}
     <button class="hl-sync-btn" id="hl-sync-btn" onclick="syncHyperliquid()"><span style="font-size:12px;flex-shrink:0">🔄</span> Sync now</button>
     <div class="hl-last-sync" id="hl-last-sync"></div>
     <hr class="sidebar-divider">
+    <div class="sidebar-section">Myfxbook</div>
+    <div class="hl-wallet-row" onclick="editMfxAccountId()" title="Click to set your myfxbook account ID">
+      <span class="hl-addr" id="mfx-account-id">Set account ID…</span>
+      <span class="hl-edit">✏️</span>
+    </div>
+    <button class="hl-sync-btn" id="mfx-sync-btn" onclick="syncMyfxbook()"><span style="font-size:12px;flex-shrink:0">🔄</span> Sync now</button>
+    <div class="hl-last-sync" id="mfx-last-sync"></div>
+    <hr class="sidebar-divider">
     <div class="sidebar-section">Quick Links</div>
     <div id="quick-links-list"></div>
     <div class="quick-link-add" onclick="toggleAddLink()"><span style="font-size:12px;flex-shrink:0">+</span> Add link</div>
@@ -690,6 +698,9 @@ let activePairFilter=null;
 let startingBalance=0;
 let hlWallets=[]; // array of wallet address strings — synced together, merged into one calendar
 let hlLastSync=0;
+let myfxbookAccountId='';
+let myfxbookLastSync=0;
+let myfxbookSyncing=false;
 let hlSyncing=false;
 let pnlFilterMode='month';
 let privacyMode=false;
@@ -756,6 +767,8 @@ async function cloudPullAll(){
       if(!hlWallets.length && settings.hl_wallet)hlWallets=[settings.hl_wallet];
       startingBalance=settings.starting_balance!=null?parseFloat(settings.starting_balance)||0:0;
       hlLastSync=settings.hl_last_sync!=null?parseInt(settings.hl_last_sync)||0:0;
+      myfxbookAccountId=settings.myfxbook_account_id||'';
+      myfxbookLastSync=settings.myfxbook_last_sync!=null?parseInt(settings.myfxbook_last_sync)||0:0;
     }
     if(!customPairs.length)customPairs=['XAUUSD','EURUSD','GBPUSD','USDJPY','USDCAD','AUDUSD','NZDUSD','US30','NAS100','SPX500'];
     if(!quickLinks.length)quickLinks=[{name:'TradingView',url:'https://tradingview.com'},{name:'Hyperliquid',url:'https://app.hyperliquid.xyz/portfolio'},{name:'Discord',url:'https://discord.com'}];
@@ -765,6 +778,8 @@ async function cloudPullAll(){
     safeSetItem('tj2_balance',String(startingBalance));
     safeSetItem('tj2_hl_wallets',JSON.stringify(hlWallets));
     safeSetItem('tj2_hl_lastsync',String(hlLastSync));
+    safeSetItem('tj2_mfx_account_id',myfxbookAccountId);
+    safeSetItem('tj2_mfx_lastsync',String(myfxbookLastSync));
     syncReady=true;
     showSyncStatus('synced','✓ Synced');
   }catch(err){
@@ -776,6 +791,8 @@ async function cloudPullAll(){
     if(!hlWallets.length){const legacy=localStorage.getItem('tj2_hl_wallet');if(legacy)hlWallets=[legacy];}
     startingBalance=parseFloat(localStorage.getItem('tj2_balance')||'0')||0;
     hlLastSync=parseInt(localStorage.getItem('tj2_hl_lastsync')||'0',10)||0;
+    myfxbookAccountId=localStorage.getItem('tj2_mfx_account_id')||'';
+    myfxbookLastSync=parseInt(localStorage.getItem('tj2_mfx_lastsync')||'0',10)||0;
     if(!customPairs.length)customPairs=['XAUUSD','EURUSD','GBPUSD','USDJPY','USDCAD','AUDUSD','NZDUSD','US30','NAS100','SPX500'];
     if(!quickLinks.length)quickLinks=[{name:'TradingView',url:'https://tradingview.com'},{name:'Hyperliquid',url:'https://app.hyperliquid.xyz/portfolio'},{name:'Discord',url:'https://discord.com'}];
     syncReady=true;
@@ -854,6 +871,8 @@ async function cloudSaveSettings(){
       hl_wallet:hlWallets[0]||null, // keep legacy single field populated for backward compat
       starting_balance:startingBalance||0,
       hl_last_sync:hlLastSync||0,
+      myfxbook_account_id:myfxbookAccountId||null,
+      myfxbook_last_sync:myfxbookLastSync||0,
       updated_at:new Date().toISOString()
     };
     let {error}=await supabaseClient.from('user_settings').upsert(row);
@@ -864,6 +883,12 @@ async function cloudSaveSettings(){
         const retry=await supabaseClient.from('user_settings').upsert(row);
         if(retry.error)throw retry.error;
         console.warn("Supabase 'hl_wallets' column missing — only the first wallet was saved. Add column: ALTER TABLE user_settings ADD COLUMN hl_wallets jsonb DEFAULT '[]';");
+      } else if(String(error.message||'').toLowerCase().includes('myfxbook')){
+        delete row.myfxbook_account_id;
+        delete row.myfxbook_last_sync;
+        const retry=await supabaseClient.from('user_settings').upsert(row);
+        if(retry.error)throw retry.error;
+        console.warn("Supabase 'myfxbook_account_id'/'myfxbook_last_sync' columns missing. Add columns: ALTER TABLE user_settings ADD COLUMN myfxbook_account_id text; ALTER TABLE user_settings ADD COLUMN myfxbook_last_sync bigint DEFAULT 0;");
       } else throw error;
     }
   }catch(err){console.error('Settings save failed:',err);}
@@ -1094,7 +1119,7 @@ async function init(){
     const tb=document.getElementById('theme-toggle');
     if(tb)tb.textContent='☀️';
   }
-  renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();renderHlStatus();applyHlExpandedState();
+  renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();renderHlStatus();applyHlExpandedState();renderMfxStatus();
   try{history.replaceState({page:'calendar'},'','');}catch(e){}
   document.addEventListener('click',()=>{const dd=document.getElementById('pnl-filter-dropdown');if(dd)dd.classList.add('hidden');});
   document.addEventListener('keydown',e=>{
@@ -2436,6 +2461,122 @@ function renderHlStatus(){
 
 function isValidHlWallet(v){
   return /^0x[a-fA-F0-9]{40}$/.test(v);
+}
+
+// ── Myfxbook sync ──
+
+function renderMfxStatus(){
+  const idEl=document.getElementById('mfx-account-id');
+  if(idEl){
+    idEl.textContent=myfxbookAccountId?myfxbookAccountId:'Set account ID…';
+    idEl.style.color=myfxbookAccountId?'':'#8493a1';
+  }
+  const lastEl=document.getElementById('mfx-last-sync');
+  if(lastEl){
+    if(myfxbookLastSync){
+      const diffMin=Math.round((Date.now()-myfxbookLastSync)/60000);
+      let txt;
+      if(diffMin<1)txt='Last sync: just now';
+      else if(diffMin<60)txt=`Last sync: ${diffMin}m ago`;
+      else if(diffMin<1440)txt=`Last sync: ${Math.round(diffMin/60)}h ago`;
+      else txt=`Last sync: ${Math.round(diffMin/1440)}d ago`;
+      lastEl.textContent=txt;
+    } else {
+      lastEl.textContent='Never synced';
+    }
+  }
+}
+
+async function editMfxAccountId(){
+  const input=prompt('Enter your myfxbook account ID (the number at the end of the account URL):', myfxbookAccountId||'');
+  if(input===null)return;
+  const v=input.trim();
+  myfxbookAccountId=v;
+  safeSetItem('tj2_mfx_account_id',v);
+  await cloudSaveSettings();
+  renderMfxStatus();
+}
+
+// Myfxbook history rows are already closed round-trip trades (unlike
+// Hyperliquid's raw fills), so no fill-grouping is needed — just map each
+// row from the Edge Function straight into the trade format. Dedupe reuses
+// hl_fill_ids (tagged "mfx:<id>") and findExistingTradeByFillIds so no
+// separate lookup logic or schema change is needed.
+async function syncMyfxbook(){
+  if(!myfxbookAccountId){
+    alert('Set your myfxbook account ID first (click "Set account ID…" in the sidebar).');
+    return;
+  }
+  if(myfxbookSyncing)return;
+  const btn=document.getElementById('mfx-sync-btn');
+  myfxbookSyncing=true;
+  if(btn)btn.disabled=true;
+  showSyncStatus('syncing','⟳ Pulling myfxbook…');
+  try{
+    const {data:resp,error}=await supabaseClient.functions.invoke('myfxbook-sync',{body:{accountId:myfxbookAccountId}});
+    if(error)throw error;
+    if(resp&&resp.error)throw new Error(resp.error);
+    const trades=(resp&&resp.trades)||[];
+    let created=0, updated=0, skipped=0;
+
+    for(const t of trades){
+      if(!t.pair||t.external_id==null||(t.entry_time==null&&t.exit_time==null)){
+        skipped++;
+        continue;
+      }
+      const dk=dateKeyFromMs(t.exit_time||t.entry_time);
+      const fillIds=['mfx:'+t.external_id];
+      const existing=findExistingTradeByFillIds(fillIds);
+      if(existing){
+        const ex=existing.trade;
+        ex.pnl=t.pnl;ex.result=t.result;ex.fees=t.fees||0;
+        ex.size=t.size;ex.entry_price=t.entry_price;ex.exit_price=t.exit_price;
+        ex.direction=t.direction;ex.entry_time=t.entry_time;ex.exit_time=t.exit_time;
+        ex.notes=t.notes;ex.source='myfxbook';ex.hl_fill_ids=fillIds;
+        if(existing.dk!==dk){
+          data[existing.dk].trades.splice(existing.idx,1);
+          if(!data[existing.dk].trades.length)delete data[existing.dk];
+          if(!data[dk])data[dk]={trades:[]};
+          data[dk].trades.push(ex);
+        }
+        await cloudUpsertTrade(dk,ex);
+        updated++;
+      } else {
+        const trade={
+          id:'mfx_'+String(t.external_id).replace(/[^a-zA-Z0-9]/g,'_'),
+          pair:t.pair,timeframe:'',pnl:t.pnl,result:t.result,
+          bias:t.direction==='Long'?'Bullish':t.direction==='Short'?'Bearish':'',
+          setup:'',plan:'',notes:t.notes||'',tags:[],screenshots:[],youtube:'',
+          source:'myfxbook',fees:t.fees||0,hl_fill_ids:fillIds,is_draft:true,
+          size:t.size,entry_price:t.entry_price,exit_price:t.exit_price,
+          partial_exits:[],direction:t.direction,entry_time:t.entry_time,exit_time:t.exit_time
+        };
+        if(!data[dk])data[dk]={trades:[]};
+        data[dk].trades.push(trade);
+        await cloudUpsertTrade(dk,trade);
+        created++;
+      }
+    }
+
+    myfxbookLastSync=Date.now();
+    safeSetItem('tj2_mfx_lastsync',String(myfxbookLastSync));
+    await cloudSaveSettings();
+    saveData();
+    renderCalendar();renderQuarterlyOverview();updateStats();renderMfxStatus();
+
+    const parts=[];
+    if(created)parts.push(`${created} new`);
+    if(updated)parts.push(`${updated} updated`);
+    if(skipped)parts.push(`${skipped} skipped`);
+    showSyncStatus('synced',parts.length?`✓ ${parts.join(', ')}`:'✓ Already up to date');
+  }catch(err){
+    console.error('myfxbook sync failed:',err);
+    showSyncStatus('error','⚠ Sync failed');
+    alert('myfxbook sync failed: '+(err.message||err));
+  }finally{
+    myfxbookSyncing=false;
+    if(btn)btn.disabled=false;
+  }
 }
 
 async function persistHlWallets(){
