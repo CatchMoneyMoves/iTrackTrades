@@ -2568,7 +2568,15 @@ async function syncMyfxbook(){
     if(created)parts.push(`${created} new`);
     if(updated)parts.push(`${updated} updated`);
     if(skipped)parts.push(`${skipped} skipped`);
-    showSyncStatus('synced',parts.length?`✓ ${parts.join(', ')}`:'✓ Already up to date');
+    if(!parts.length){
+      const cc=resp&&resp.closedCount||0, oc=resp&&resp.openCount||0;
+      showSyncStatus('synced','✓ Nothing to sync');
+      if(cc===0&&oc===0){
+        console.info('myfxbook: account has no closed or open trades yet.');
+      }
+    } else {
+      showSyncStatus('synced',`✓ ${parts.join(', ')}`);
+    }
   }catch(err){
     console.error('myfxbook sync failed:',err);
     showSyncStatus('error','⚠ Sync failed');
