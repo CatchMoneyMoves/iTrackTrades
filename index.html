@@ -501,10 +501,15 @@ body.dark ::-webkit-scrollbar-thumb{background:#2c3a47}
     <button class="hl-sync-btn" id="hl-sync-btn" onclick="syncHyperliquid()"><span style="font-size:12px;flex-shrink:0">🔄</span> Sync now</button>
     <div class="hl-last-sync" id="hl-last-sync"></div>
     <hr class="sidebar-divider">
-    <div class="sidebar-section">Myfxbook</div>
-    <div class="hl-wallet-row" onclick="editMfxAccountId()" title="Click to set your myfxbook account ID">
-      <span class="hl-addr" id="mfx-account-id">Set account ID…</span>
-      <span class="hl-edit">✏️</span>
+    <div class="sidebar-section hl-section-header" onclick="toggleMfxWallets()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;user-select:none">
+      <span>Myfxbook</span>
+      <span id="mfx-section-chevron" style="font-size:0.7rem;opacity:0.6;transition:transform 0.15s">▸</span>
+    </div>
+    <div id="mfx-wallets-wrap" style="display:none">
+      <div class="hl-wallet-row" onclick="editMfxAccountId()" title="Click to set your myfxbook account ID">
+        <span class="hl-addr" id="mfx-account-id">Set account ID…</span>
+        <span class="hl-edit">✏️</span>
+      </div>
     </div>
     <button class="hl-sync-btn" id="mfx-sync-btn" onclick="syncMyfxbook()"><span style="font-size:12px;flex-shrink:0">🔄</span> Sync now</button>
     <div class="hl-last-sync" id="mfx-last-sync"></div>
@@ -1119,7 +1124,7 @@ async function init(){
     const tb=document.getElementById('theme-toggle');
     if(tb)tb.textContent='☀️';
   }
-  renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();renderHlStatus();applyHlExpandedState();renderMfxStatus();
+  renderCalendar();renderQuarterlyOverview();renderQuickLinks();updateStats();renderHlStatus();applyHlExpandedState();renderMfxStatus();applyMfxExpandedState();
   try{history.replaceState({page:'calendar'},'','');}catch(e){}
   document.addEventListener('click',()=>{const dd=document.getElementById('pnl-filter-dropdown');if(dd)dd.classList.add('hidden');});
   document.addEventListener('keydown',e=>{
@@ -2487,6 +2492,25 @@ function renderMfxStatus(){
   }
 }
 
+function toggleMfxWallets(){
+  const wrap=document.getElementById('mfx-wallets-wrap');
+  const chev=document.getElementById('mfx-section-chevron');
+  if(!wrap)return;
+  const showing=wrap.style.display!=='none';
+  wrap.style.display=showing?'none':'block';
+  if(chev)chev.style.transform=showing?'rotate(0deg)':'rotate(90deg)';
+  try{localStorage.setItem('tj2_mfx_expanded',showing?'0':'1');}catch(e){}
+}
+
+function applyMfxExpandedState(){
+  let expanded=false;
+  try{expanded=localStorage.getItem('tj2_mfx_expanded')==='1';}catch(e){}
+  const wrap=document.getElementById('mfx-wallets-wrap');
+  const chev=document.getElementById('mfx-section-chevron');
+  if(wrap)wrap.style.display=expanded?'block':'none';
+  if(chev)chev.style.transform=expanded?'rotate(90deg)':'rotate(0deg)';
+}
+
 async function editMfxAccountId(){
   const input=prompt('Enter your myfxbook account ID (the number at the end of the account URL):', myfxbookAccountId||'');
   if(input===null)return;
@@ -2502,6 +2526,22 @@ async function editMfxAccountId(){
 // row from the Edge Function straight into the trade format. Dedupe reuses
 // hl_fill_ids (tagged "mfx:<id>") and findExistingTradeByFillIds so no
 // separate lookup logic or schema change is needed.
+
+// The trades table's `id` column is numeric, but myfxbook's external_id is
+// a text hash — turn it into a stable positive integer so the row insert
+// doesn't get rejected with a 400.
+function mfxHashId(str){
+  str=String(str);
+  let h1=0xdeadbeef, h2=0x41c6ce57;
+  for(let i=0;i<str.length;i++){
+    const ch=str.charCodeAt(i);
+    h1=Math.imul(h1^ch,2654435761);
+    h2=Math.imul(h2^ch,1597334677);
+  }
+  h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);
+  h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);
+  return 4294967296*(h2>>>0)+(h1>>>0);
+}
 async function syncMyfxbook(){
   if(!myfxbookAccountId){
     alert('Set your myfxbook account ID first (click "Set account ID…" in the sidebar).');
@@ -2543,7 +2583,7 @@ async function syncMyfxbook(){
         updated++;
       } else {
         const trade={
-          id:'mfx_'+String(t.external_id).replace(/[^a-zA-Z0-9]/g,'_'),
+          id:mfxHashId(t.external_id),
           pair:t.pair,timeframe:'',pnl:t.pnl,result:t.result,
           bias:t.direction==='Long'?'Bullish':t.direction==='Short'?'Bearish':'',
           setup:'',plan:'',notes:t.notes||'',tags:[],screenshots:[],youtube:'',
