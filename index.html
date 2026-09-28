@@ -299,6 +299,15 @@ body.privacy .tc-prices::after{content:'••••';visibility:visible;positio
 .yt-play-arrow{width:0;height:0;border-top:10px solid transparent;border-bottom:10px solid transparent;border-left:18px solid white;margin-left:4px}
 .yt-remove{font-size:0.7rem;color:#b91c1c;cursor:pointer;margin-top:4px;display:inline-block}
 .yt-remove:hover{text-decoration:underline}
+.combine-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.combine-bar button{border:1px solid #0077c0;background:#e3f1fb;color:#0077c0;border-radius:7px;padding:6px 12px;font-size:0.75rem;font-weight:600;cursor:pointer}
+.combine-bar button:disabled{opacity:0.4;cursor:not-allowed}
+.combine-bar .cb-go{background:#0077c0;color:#fff}
+.tc-check{position:absolute;top:9px;right:9px;width:18px;height:18px;accent-color:#0077c0;pointer-events:none}
+.trade-card.cmb-selected{border-color:#0077c0;background:#e3f1fb}
+body.dark .combine-bar button{background:#0d1014;border-color:#2b9be0;color:#2b9be0}
+body.dark .combine-bar .cb-go{background:#2b9be0;color:#0a0c0f}
+body.dark .trade-card.cmb-selected{border-color:#2b9be0 !important;background:#10202d !important}
 .add-trade-btn{width:100%;background:#dde5ec;border:1.5px dashed #c4ced4;color:#5b6b7a;border-radius:7px;padding:9px;cursor:pointer;font-size:0.8rem;transition:all 0.15s;margin-bottom:10px}
 .add-trade-btn:hover{border-color:#0077c0;color:#0077c0}
 .save-btn{flex:2;background:#0077c0;color:#f4f7fa;border:none;border-radius:8px;padding:10px;font-weight:700;font-size:0.88rem;cursor:pointer}
@@ -1708,6 +1717,7 @@ function openTradeDetailFromQ(dk,tradeId){
 
 function openModal(dk,filterPair){
   activeDate=dk;editingIdx=null;editingDk=null;
+  cmbMode=false;cmbSel.clear();
   activePairFilter=filterPair||null;
   const d=new Date(dk+'T12:00:00');
   document.getElementById('modal-date-title').textContent=d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
@@ -1737,10 +1747,81 @@ function renderDaySummary(){
     <div class="sum-pill"><div class="sum-val">${wins}W / ${losses}L</div><div class="sum-lbl">Results</div></div>`;
 }
 
+let cmbMode=false;
+const cmbSel=new Set();
+function toggleCombineMode(){
+  cmbMode=!cmbMode;cmbSel.clear();
+  renderLoggedTrades();
+}
+function cmbToggle(id){
+  const k=String(id);
+  if(cmbSel.has(k))cmbSel.delete(k);else cmbSel.add(k);
+  renderLoggedTrades();
+}
+async function combineSelectedTrades(){
+  const trades=(data[activeDate]||{}).trades||[];
+  const picked=trades.filter(t=>cmbSel.has(String(t.id)));
+  if(picked.length<2)return;
+  const pairs=new Set(picked.map(t=>t.pair));
+  const dirs=new Set(picked.map(t=>t.direction||''));
+  if(pairs.size>1||dirs.size>1){
+    if(!confirm('These trades have different pairs or directions. Combine anyway?'))return;
+  }
+  if(!confirm(`Combine ${picked.length} trades into one?`))return;
+  picked.sort((a,b)=>(a.entry_time||0)-(b.entry_time||0));
+  const base=picked[0];
+  const num=v=>parseFloat(v)||0;
+  const totalSize=picked.reduce((s,t)=>s+num(t.size),0);
+  const wavg=key=>{
+    const w=picked.filter(t=>t[key]!=null&&t[key]!==''&&num(t.size)>0);
+    const sz=w.reduce((s,t)=>s+num(t.size),0);
+    if(!sz)return base[key]!=null?base[key]:null;
+    return w.reduce((s,t)=>s+num(t[key])*num(t.size),0)/sz;
+  };
+  const pnl=picked.reduce((s,t)=>s+num(t.pnl),0);
+  const first=k=>{const x=picked.find(t=>t[k]);return x?x[k]:base[k]||'';};
+  const times=k=>picked.map(t=>t[k]).filter(v=>v!=null);
+  const notes=[...new Set(picked.map(t=>(t.notes||'').trim()).filter(Boolean))].join('\n');
+  const merged=Object.assign({},base,{
+    pnl,result:autoResult(pnl),
+    size:totalSize||base.size,
+    entry_price:wavg('entry_price'),
+    exit_price:wavg('exit_price'),
+    fees:picked.reduce((s,t)=>s+num(t.fees),0),
+    hl_fill_ids:[...new Set(picked.flatMap(t=>t.hl_fill_ids||[]))],
+    partial_exits:picked.flatMap(t=>t.partial_exits||[]),
+    tags:[...new Set(picked.flatMap(t=>t.tags||[]))],
+    screenshots:picked.flatMap(t=>t.screenshots||[]),
+    notes,
+    timeframe:first('timeframe'),setup:first('setup'),plan:first('plan'),
+    bias:first('bias'),youtube:first('youtube'),
+    direction:first('direction')||null,
+    entry_time:times('entry_time').length?Math.min(...times('entry_time')):base.entry_time,
+    exit_time:times('exit_time').length?Math.max(...times('exit_time')):base.exit_time,
+    is_draft:picked.some(t=>t.is_draft)
+  });
+  const removeIds=new Set(picked.slice(1).map(t=>String(t.id)));
+  data[activeDate].trades=trades.filter(t=>!removeIds.has(String(t.id)));
+  const idx=data[activeDate].trades.findIndex(t=>String(t.id)===String(base.id));
+  data[activeDate].trades[idx]=merged;
+  cmbMode=false;cmbSel.clear();
+  saveData();
+  for(const id of removeIds)await cloudDeleteTrade(id);
+  await cloudUpsertTrade(activeDate,merged);
+  renderDaySummary();renderLoggedTrades();renderCalendar();
+  renderQuarterlyOverview();updateStats();
+}
+
 function renderLoggedTrades(){
   const allTrades=(data[activeDate]||{}).trades||[];
   const wrap=document.getElementById('logged-trades');
-  if(!allTrades.length){wrap.innerHTML='';return;}
+  if(!allTrades.length){cmbMode=false;cmbSel.clear();wrap.innerHTML='';return;}
+  if(allTrades.length<2){cmbMode=false;cmbSel.clear();}
+  const cmbBar=allTrades.length>=2
+    ?(cmbMode
+      ?`<div class="combine-bar"><button onclick="toggleCombineMode()">Cancel</button><button class="cb-go" ${cmbSel.size<2?'disabled':''} onclick="combineSelectedTrades()">Combine ${cmbSel.size>=2?'('+cmbSel.size+')':''}</button></div>`
+      :`<div class="combine-bar"><span></span><button onclick="toggleCombineMode()">Select to combine</button></div>`)
+    :'';
   const indexed=allTrades.map((t,i)=>({trade:t,idx:i}));
   const filtered=activePairFilter?indexed.filter(x=>x.trade.pair===activePairFilter):indexed;
   const chip=activePairFilter
@@ -1750,15 +1831,15 @@ function renderLoggedTrades(){
     wrap.innerHTML=chip+`<div style="color:#8493a1;font-size:0.78rem;padding:14px;text-align:center">No ${activePairFilter} trades logged on this day.</div>`;
     return;
   }
-  wrap.innerHTML=chip+filtered.map(({trade:t,idx:i})=>{
+  wrap.innerHTML=cmbBar+chip+filtered.map(({trade:t,idx:i})=>{
     let realizedSoFar='';
     if(t.result==='Open' && (t.partial_exits||[]).length){
       const realized=t.partial_exits.reduce((s,p)=>s+(parseFloat(p.pnl)||0)-(parseFloat(p.fee)||0),0);
       realizedSoFar=`<span class="tc-realized ${realized>=0?'green':'red'}">Realized: ${pnlStr(realized)}</span>`;
     }
     return `
-    <div class="trade-card" onclick="openTradeDetail('${activeDate}',${i})">
-      <button class="tc-del" onclick="event.stopPropagation();deleteTrade(${i})">🗑</button>
+    <div class="trade-card ${cmbMode&&cmbSel.has(String(t.id))?'cmb-selected':''}" onclick="${cmbMode?`cmbToggle('${t.id}')`:`openTradeDetail('${activeDate}',${i})`}">
+      ${cmbMode?`<input type="checkbox" class="tc-check" ${cmbSel.has(String(t.id))?'checked':''}>`:`<button class="tc-del" onclick="event.stopPropagation();deleteTrade(${i})">🗑</button>`}
       <div class="trade-card-header">
         ${t.source==='hyperliquid'?`<span class="tc-source-icon" title="Auto-synced from Hyperliquid">⚡</span>`:''}
         <span class="tc-pair">${t.pair||'—'}</span>
