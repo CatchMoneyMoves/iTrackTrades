@@ -2591,6 +2591,62 @@ function mfxHashId(str){
   h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);
   return 4294967296*(h2>>>0)+(h1>>>0);
 }
+// Two myfxbook trades count as the same real trade if pair, direction,
+// size and both entry/exit price+time all match — regardless of which
+// account ID or fill-id key produced them. Catches both the account-
+// namespacing dedup-key change (fixed above, but already left duplicates
+// behind) and the case of two myfxbook account IDs mirroring the same
+// underlying MT5 login.
+function mfxTradeSignature(t){
+  return [t.pair,t.direction,t.size,t.entry_price,t.exit_price,t.entry_time,t.exit_time]
+    .map(v=>v==null?'':String(v)).join('|');
+}
+
+async function combineDuplicateMfxTrades(){
+  const groups={};
+  for(const dk in data){
+    const trades=(data[dk]||{}).trades||[];
+    trades.forEach((t,i)=>{
+      if(t.source!=='myfxbook')return;
+      const sig=mfxTradeSignature(t);
+      if(!sig.trim())return;
+      (groups[sig]=groups[sig]||[]).push({dk,idx:i,trade:t});
+    });
+  }
+  let mergedCount=0;
+  for(const sig in groups){
+    const group=groups[sig];
+    if(group.length<2)continue;
+    // Prefer whichever copy already has a fee recorded (the commission-fix
+    // sync), then fall back to the first one found.
+    group.sort((a,b)=>Math.abs(b.trade.fees||0)-Math.abs(a.trade.fees||0));
+    const keepEntry=group[0];
+    const keep=keepEntry.trade;
+    const dupes=group.slice(1);
+    const allFillIds=new Set(keep.hl_fill_ids||[]);
+    let maxFee=Math.abs(keep.fees||0);
+    for(const d of dupes){
+      (d.trade.hl_fill_ids||[]).forEach(id=>allFillIds.add(id));
+      maxFee=Math.max(maxFee,Math.abs(d.trade.fees||0));
+    }
+    keep.hl_fill_ids=[...allFillIds];
+    keep.fees=maxFee;
+    await cloudUpsertTrade(keepEntry.dk,keep);
+    const byDk={};
+    for(const d of dupes){(byDk[d.dk]=byDk[d.dk]||[]).push(d);}
+    for(const dkKey in byDk){
+      const list=byDk[dkKey].sort((a,b)=>b.idx-a.idx); // delete highest index first
+      for(const d of list){
+        await cloudDeleteTrade(d.trade.id);
+        data[dkKey].trades.splice(d.idx,1);
+      }
+      if(data[dkKey]&&!data[dkKey].trades.length)delete data[dkKey];
+    }
+    mergedCount+=dupes.length;
+  }
+  return mergedCount;
+}
+
 async function syncMyfxbook(){
   if(!myfxbookAccountIds.length){
     alert('Add your myfxbook account ID first (click "+ Add account" in the sidebar).');
@@ -2618,16 +2674,21 @@ async function syncMyfxbook(){
         }
         const dk=dateKeyFromMs(t.exit_time||t.entry_time);
         // Namespace by account ID so two different myfxbook accounts can
-        // never collide on the same external_id/hash.
+        // never collide on the same external_id/hash — but a trade synced
+        // BEFORE this namespacing existed is still tagged with the old,
+        // un-namespaced key, so check both forms or it'll look "new" again
+        // and sync in as a duplicate.
         const nsId=accountId+':'+t.external_id;
-        const fillIds=['mfx:'+nsId];
-        const existing=findExistingTradeByFillIds(fillIds);
+        const newFillId='mfx:'+nsId;
+        const legacyFillId='mfx:'+t.external_id;
+        const fillIds=[newFillId];
+        const existing=findExistingTradeByFillIds([newFillId,legacyFillId]);
         if(existing){
           const ex=existing.trade;
           ex.pnl=t.pnl;ex.result=t.result;ex.fees=t.fees||0;
           ex.size=t.size;ex.entry_price=t.entry_price;ex.exit_price=t.exit_price;
           ex.direction=t.direction;ex.entry_time=t.entry_time;ex.exit_time=t.exit_time;
-          ex.notes=t.notes;ex.source='myfxbook';ex.hl_fill_ids=fillIds;
+          ex.notes=t.notes;ex.source='myfxbook';ex.hl_fill_ids=[newFillId,legacyFillId];
           if(existing.dk!==dk){
             data[existing.dk].trades.splice(existing.idx,1);
             if(!data[existing.dk].trades.length)delete data[existing.dk];
@@ -2658,6 +2719,8 @@ async function syncMyfxbook(){
     }
   }
 
+  const combined=await combineDuplicateMfxTrades();
+
   myfxbookLastSync=Date.now();
   safeSetItem('tj2_mfx_lastsync',String(myfxbookLastSync));
   await cloudSaveSettings();
@@ -2667,6 +2730,7 @@ async function syncMyfxbook(){
   const parts=[];
   if(created)parts.push(`${created} new`);
   if(updated)parts.push(`${updated} updated`);
+  if(combined)parts.push(`${combined} combined`);
   if(skipped)parts.push(`${skipped} skipped`);
   if(failedAccounts.length){
     showSyncStatus('error',`⚠ ${failedAccounts.length} account${failedAccounts.length>1?'s':''} failed`);
