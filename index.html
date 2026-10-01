@@ -299,15 +299,6 @@ body.privacy .tc-prices::after{content:'••••';visibility:visible;positio
 .yt-play-arrow{width:0;height:0;border-top:10px solid transparent;border-bottom:10px solid transparent;border-left:18px solid white;margin-left:4px}
 .yt-remove{font-size:0.7rem;color:#b91c1c;cursor:pointer;margin-top:4px;display:inline-block}
 .yt-remove:hover{text-decoration:underline}
-.combine-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
-.combine-bar button{border:1px solid #0077c0;background:#e3f1fb;color:#0077c0;border-radius:7px;padding:6px 12px;font-size:0.75rem;font-weight:600;cursor:pointer}
-.combine-bar button:disabled{opacity:0.4;cursor:not-allowed}
-.combine-bar .cb-go{background:#0077c0;color:#fff}
-.tc-check{position:absolute;top:9px;right:9px;width:18px;height:18px;accent-color:#0077c0;pointer-events:none}
-.trade-card.cmb-selected{border-color:#0077c0;background:#e3f1fb}
-body.dark .combine-bar button{background:#0d1014;border-color:#2b9be0;color:#2b9be0}
-body.dark .combine-bar .cb-go{background:#2b9be0;color:#0a0c0f}
-body.dark .trade-card.cmb-selected{border-color:#2b9be0 !important;background:#10202d !important}
 .add-trade-btn{width:100%;background:#dde5ec;border:1.5px dashed #c4ced4;color:#5b6b7a;border-radius:7px;padding:9px;cursor:pointer;font-size:0.8rem;transition:all 0.15s;margin-bottom:10px}
 .add-trade-btn:hover{border-color:#0077c0;color:#0077c0}
 .save-btn{flex:2;background:#0077c0;color:#f4f7fa;border:none;border-radius:8px;padding:10px;font-weight:700;font-size:0.88rem;cursor:pointer}
@@ -515,10 +506,8 @@ body.dark ::-webkit-scrollbar-thumb{background:#2c3a47}
       <span id="mfx-section-chevron" style="font-size:0.7rem;opacity:0.6;transition:transform 0.15s">▸</span>
     </div>
     <div id="mfx-wallets-wrap" style="display:none">
-      <div class="hl-wallet-row" onclick="editMfxAccountId()" title="Click to set your myfxbook account ID">
-        <span class="hl-addr" id="mfx-account-id">Set account ID…</span>
-        <span class="hl-edit">✏️</span>
-      </div>
+      <div id="mfx-account-list"></div>
+      <div class="quick-link-add" onclick="addMfxAccount()" title="Add another myfxbook account ID"><span style="font-size:12px;flex-shrink:0">+</span> Add account</div>
     </div>
     <button class="hl-sync-btn" id="mfx-sync-btn" onclick="syncMyfxbook()"><span style="font-size:12px;flex-shrink:0">🔄</span> Sync now</button>
     <div class="hl-last-sync" id="mfx-last-sync"></div>
@@ -712,7 +701,7 @@ let activePairFilter=null;
 let startingBalance=0;
 let hlWallets=[]; // array of wallet address strings — synced together, merged into one calendar
 let hlLastSync=0;
-let myfxbookAccountId='';
+let myfxbookAccountIds=[]; // array of myfxbook account ID strings — synced together, merged into one calendar
 let myfxbookLastSync=0;
 let myfxbookSyncing=false;
 let hlSyncing=false;
@@ -781,7 +770,10 @@ async function cloudPullAll(){
       if(!hlWallets.length && settings.hl_wallet)hlWallets=[settings.hl_wallet];
       startingBalance=settings.starting_balance!=null?parseFloat(settings.starting_balance)||0:0;
       hlLastSync=settings.hl_last_sync!=null?parseInt(settings.hl_last_sync)||0:0;
-      myfxbookAccountId=settings.myfxbook_account_id||'';
+      // Multi-account: read the new list; if it's empty but the legacy
+      // single myfxbook_account_id exists, migrate it into the list.
+      myfxbookAccountIds=Array.isArray(settings.myfxbook_account_ids)?settings.myfxbook_account_ids.filter(Boolean):[];
+      if(!myfxbookAccountIds.length && settings.myfxbook_account_id)myfxbookAccountIds=[settings.myfxbook_account_id];
       myfxbookLastSync=settings.myfxbook_last_sync!=null?parseInt(settings.myfxbook_last_sync)||0:0;
     }
     if(!customPairs.length)customPairs=['XAUUSD','EURUSD','GBPUSD','USDJPY','USDCAD','AUDUSD','NZDUSD','US30','NAS100','SPX500'];
@@ -792,7 +784,7 @@ async function cloudPullAll(){
     safeSetItem('tj2_balance',String(startingBalance));
     safeSetItem('tj2_hl_wallets',JSON.stringify(hlWallets));
     safeSetItem('tj2_hl_lastsync',String(hlLastSync));
-    safeSetItem('tj2_mfx_account_id',myfxbookAccountId);
+    safeSetItem('tj2_mfx_account_ids',JSON.stringify(myfxbookAccountIds));
     safeSetItem('tj2_mfx_lastsync',String(myfxbookLastSync));
     syncReady=true;
     showSyncStatus('synced','✓ Synced');
@@ -805,7 +797,8 @@ async function cloudPullAll(){
     if(!hlWallets.length){const legacy=localStorage.getItem('tj2_hl_wallet');if(legacy)hlWallets=[legacy];}
     startingBalance=parseFloat(localStorage.getItem('tj2_balance')||'0')||0;
     hlLastSync=parseInt(localStorage.getItem('tj2_hl_lastsync')||'0',10)||0;
-    myfxbookAccountId=localStorage.getItem('tj2_mfx_account_id')||'';
+    try{myfxbookAccountIds=JSON.parse(localStorage.getItem('tj2_mfx_account_ids')||'[]');}catch(e){myfxbookAccountIds=[];}
+    if(!myfxbookAccountIds.length){const legacy=localStorage.getItem('tj2_mfx_account_id');if(legacy)myfxbookAccountIds=[legacy];}
     myfxbookLastSync=parseInt(localStorage.getItem('tj2_mfx_lastsync')||'0',10)||0;
     if(!customPairs.length)customPairs=['XAUUSD','EURUSD','GBPUSD','USDJPY','USDCAD','AUDUSD','NZDUSD','US30','NAS100','SPX500'];
     if(!quickLinks.length)quickLinks=[{name:'TradingView',url:'https://tradingview.com'},{name:'Hyperliquid',url:'https://app.hyperliquid.xyz/portfolio'},{name:'Discord',url:'https://discord.com'}];
@@ -885,7 +878,8 @@ async function cloudSaveSettings(){
       hl_wallet:hlWallets[0]||null, // keep legacy single field populated for backward compat
       starting_balance:startingBalance||0,
       hl_last_sync:hlLastSync||0,
-      myfxbook_account_id:myfxbookAccountId||null,
+      myfxbook_account_ids:myfxbookAccountIds,
+      myfxbook_account_id:myfxbookAccountIds[0]||null, // keep legacy single field populated for backward compat
       myfxbook_last_sync:myfxbookLastSync||0,
       updated_at:new Date().toISOString()
     };
@@ -897,12 +891,18 @@ async function cloudSaveSettings(){
         const retry=await supabaseClient.from('user_settings').upsert(row);
         if(retry.error)throw retry.error;
         console.warn("Supabase 'hl_wallets' column missing — only the first wallet was saved. Add column: ALTER TABLE user_settings ADD COLUMN hl_wallets jsonb DEFAULT '[]';");
+      } else if(String(error.message||'').toLowerCase().includes('myfxbook_account_ids')){
+        delete row.myfxbook_account_ids;
+        const retry=await supabaseClient.from('user_settings').upsert(row);
+        if(retry.error)throw retry.error;
+        console.warn("Supabase 'myfxbook_account_ids' column missing — only the first account was saved. Add column: ALTER TABLE user_settings ADD COLUMN myfxbook_account_ids jsonb DEFAULT '[]';");
       } else if(String(error.message||'').toLowerCase().includes('myfxbook')){
+        delete row.myfxbook_account_ids;
         delete row.myfxbook_account_id;
         delete row.myfxbook_last_sync;
         const retry=await supabaseClient.from('user_settings').upsert(row);
         if(retry.error)throw retry.error;
-        console.warn("Supabase 'myfxbook_account_id'/'myfxbook_last_sync' columns missing. Add columns: ALTER TABLE user_settings ADD COLUMN myfxbook_account_id text; ALTER TABLE user_settings ADD COLUMN myfxbook_last_sync bigint DEFAULT 0;");
+        console.warn("Supabase 'myfxbook_account_id'/'myfxbook_last_sync' columns missing. Add columns: ALTER TABLE user_settings ADD COLUMN myfxbook_account_ids jsonb DEFAULT '[]'; ALTER TABLE user_settings ADD COLUMN myfxbook_account_id text; ALTER TABLE user_settings ADD COLUMN myfxbook_last_sync bigint DEFAULT 0;");
       } else throw error;
     }
   }catch(err){console.error('Settings save failed:',err);}
@@ -1717,7 +1717,6 @@ function openTradeDetailFromQ(dk,tradeId){
 
 function openModal(dk,filterPair){
   activeDate=dk;editingIdx=null;editingDk=null;
-  cmbMode=false;cmbSel.clear();
   activePairFilter=filterPair||null;
   const d=new Date(dk+'T12:00:00');
   document.getElementById('modal-date-title').textContent=d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
@@ -1747,81 +1746,10 @@ function renderDaySummary(){
     <div class="sum-pill"><div class="sum-val">${wins}W / ${losses}L</div><div class="sum-lbl">Results</div></div>`;
 }
 
-let cmbMode=false;
-const cmbSel=new Set();
-function toggleCombineMode(){
-  cmbMode=!cmbMode;cmbSel.clear();
-  renderLoggedTrades();
-}
-function cmbToggle(id){
-  const k=String(id);
-  if(cmbSel.has(k))cmbSel.delete(k);else cmbSel.add(k);
-  renderLoggedTrades();
-}
-async function combineSelectedTrades(){
-  const trades=(data[activeDate]||{}).trades||[];
-  const picked=trades.filter(t=>cmbSel.has(String(t.id)));
-  if(picked.length<2)return;
-  const pairs=new Set(picked.map(t=>t.pair));
-  const dirs=new Set(picked.map(t=>t.direction||''));
-  if(pairs.size>1||dirs.size>1){
-    if(!confirm('These trades have different pairs or directions. Combine anyway?'))return;
-  }
-  if(!confirm(`Combine ${picked.length} trades into one?`))return;
-  picked.sort((a,b)=>(a.entry_time||0)-(b.entry_time||0));
-  const base=picked[0];
-  const num=v=>parseFloat(v)||0;
-  const totalSize=picked.reduce((s,t)=>s+num(t.size),0);
-  const wavg=key=>{
-    const w=picked.filter(t=>t[key]!=null&&t[key]!==''&&num(t.size)>0);
-    const sz=w.reduce((s,t)=>s+num(t.size),0);
-    if(!sz)return base[key]!=null?base[key]:null;
-    return w.reduce((s,t)=>s+num(t[key])*num(t.size),0)/sz;
-  };
-  const pnl=picked.reduce((s,t)=>s+num(t.pnl),0);
-  const first=k=>{const x=picked.find(t=>t[k]);return x?x[k]:base[k]||'';};
-  const times=k=>picked.map(t=>t[k]).filter(v=>v!=null);
-  const notes=[...new Set(picked.map(t=>(t.notes||'').trim()).filter(Boolean))].join('\n');
-  const merged=Object.assign({},base,{
-    pnl,result:autoResult(pnl),
-    size:totalSize||base.size,
-    entry_price:wavg('entry_price'),
-    exit_price:wavg('exit_price'),
-    fees:picked.reduce((s,t)=>s+num(t.fees),0),
-    hl_fill_ids:[...new Set(picked.flatMap(t=>t.hl_fill_ids||[]))],
-    partial_exits:picked.flatMap(t=>t.partial_exits||[]),
-    tags:[...new Set(picked.flatMap(t=>t.tags||[]))],
-    screenshots:picked.flatMap(t=>t.screenshots||[]),
-    notes,
-    timeframe:first('timeframe'),setup:first('setup'),plan:first('plan'),
-    bias:first('bias'),youtube:first('youtube'),
-    direction:first('direction')||null,
-    entry_time:times('entry_time').length?Math.min(...times('entry_time')):base.entry_time,
-    exit_time:times('exit_time').length?Math.max(...times('exit_time')):base.exit_time,
-    is_draft:picked.some(t=>t.is_draft)
-  });
-  const removeIds=new Set(picked.slice(1).map(t=>String(t.id)));
-  data[activeDate].trades=trades.filter(t=>!removeIds.has(String(t.id)));
-  const idx=data[activeDate].trades.findIndex(t=>String(t.id)===String(base.id));
-  data[activeDate].trades[idx]=merged;
-  cmbMode=false;cmbSel.clear();
-  saveData();
-  for(const id of removeIds)await cloudDeleteTrade(id);
-  await cloudUpsertTrade(activeDate,merged);
-  renderDaySummary();renderLoggedTrades();renderCalendar();
-  renderQuarterlyOverview();updateStats();
-}
-
 function renderLoggedTrades(){
   const allTrades=(data[activeDate]||{}).trades||[];
   const wrap=document.getElementById('logged-trades');
-  if(!allTrades.length){cmbMode=false;cmbSel.clear();wrap.innerHTML='';return;}
-  if(allTrades.length<2){cmbMode=false;cmbSel.clear();}
-  const cmbBar=allTrades.length>=2
-    ?(cmbMode
-      ?`<div class="combine-bar"><button onclick="toggleCombineMode()">Cancel</button><button class="cb-go" ${cmbSel.size<2?'disabled':''} onclick="combineSelectedTrades()">Combine ${cmbSel.size>=2?'('+cmbSel.size+')':''}</button></div>`
-      :`<div class="combine-bar"><span></span><button onclick="toggleCombineMode()">Select to combine</button></div>`)
-    :'';
+  if(!allTrades.length){wrap.innerHTML='';return;}
   const indexed=allTrades.map((t,i)=>({trade:t,idx:i}));
   const filtered=activePairFilter?indexed.filter(x=>x.trade.pair===activePairFilter):indexed;
   const chip=activePairFilter
@@ -1831,15 +1759,15 @@ function renderLoggedTrades(){
     wrap.innerHTML=chip+`<div style="color:#8493a1;font-size:0.78rem;padding:14px;text-align:center">No ${activePairFilter} trades logged on this day.</div>`;
     return;
   }
-  wrap.innerHTML=cmbBar+chip+filtered.map(({trade:t,idx:i})=>{
+  wrap.innerHTML=chip+filtered.map(({trade:t,idx:i})=>{
     let realizedSoFar='';
     if(t.result==='Open' && (t.partial_exits||[]).length){
       const realized=t.partial_exits.reduce((s,p)=>s+(parseFloat(p.pnl)||0)-(parseFloat(p.fee)||0),0);
       realizedSoFar=`<span class="tc-realized ${realized>=0?'green':'red'}">Realized: ${pnlStr(realized)}</span>`;
     }
     return `
-    <div class="trade-card ${cmbMode&&cmbSel.has(String(t.id))?'cmb-selected':''}" onclick="${cmbMode?`cmbToggle('${t.id}')`:`openTradeDetail('${activeDate}',${i})`}">
-      ${cmbMode?`<input type="checkbox" class="tc-check" ${cmbSel.has(String(t.id))?'checked':''}>`:`<button class="tc-del" onclick="event.stopPropagation();deleteTrade(${i})">🗑</button>`}
+    <div class="trade-card" onclick="openTradeDetail('${activeDate}',${i})">
+      <button class="tc-del" onclick="event.stopPropagation();deleteTrade(${i})">🗑</button>
       <div class="trade-card-header">
         ${t.source==='hyperliquid'?`<span class="tc-source-icon" title="Auto-synced from Hyperliquid">⚡</span>`:''}
         <span class="tc-pair">${t.pair||'—'}</span>
@@ -2552,10 +2480,19 @@ function isValidHlWallet(v){
 // ── Myfxbook sync ──
 
 function renderMfxStatus(){
-  const idEl=document.getElementById('mfx-account-id');
-  if(idEl){
-    idEl.textContent=myfxbookAccountId?myfxbookAccountId:'Set account ID…';
-    idEl.style.color=myfxbookAccountId?'':'#8493a1';
+  const listEl=document.getElementById('mfx-account-list');
+  if(listEl){
+    if(!myfxbookAccountIds.length){
+      listEl.innerHTML=`<div class="hl-wallet-row" onclick="addMfxAccount()" title="Click to add your myfxbook account ID"><span class="hl-addr" style="color:#8493a1">Set account ID…</span><span class="hl-edit">✏️</span></div>`;
+    } else {
+      listEl.innerHTML=myfxbookAccountIds.map((id,i)=>{
+        return `<div class="hl-wallet-row" title="${id}">
+          <span class="hl-addr" onclick="editMfxAccount(${i})">${id}</span>
+          <button class="ql-icon-btn" onclick="editMfxAccount(${i})" title="Edit" style="color:#0077c0">✏️</button>
+          <button class="ql-icon-btn" onclick="removeMfxAccount(${i})" title="Remove" style="color:#b91c1c">×</button>
+        </div>`;
+      }).join('');
+    }
   }
   const lastEl=document.getElementById('mfx-last-sync');
   if(lastEl){
@@ -2592,14 +2529,45 @@ function applyMfxExpandedState(){
   if(chev)chev.style.transform=expanded?'rotate(90deg)':'rotate(0deg)';
 }
 
-async function editMfxAccountId(){
-  const input=prompt('Enter your myfxbook account ID (the number at the end of the account URL):', myfxbookAccountId||'');
-  if(input===null)return;
-  const v=input.trim();
-  myfxbookAccountId=v;
-  safeSetItem('tj2_mfx_account_id',v);
+async function persistMfxAccounts(){
+  safeSetItem('tj2_mfx_account_ids',JSON.stringify(myfxbookAccountIds));
   await cloudSaveSettings();
   renderMfxStatus();
+}
+
+async function addMfxAccount(){
+  const input=prompt('Add a myfxbook account ID (the number at the end of the account URL):','');
+  if(input===null)return;
+  const v=input.trim();
+  if(!v)return;
+  if(myfxbookAccountIds.includes(v)){
+    alert('That account is already in your list.');
+    return;
+  }
+  myfxbookAccountIds.push(v);
+  await persistMfxAccounts();
+}
+
+async function editMfxAccount(i){
+  const cur=myfxbookAccountIds[i]||'';
+  const input=prompt('Edit myfxbook account ID:',cur);
+  if(input===null)return;
+  const v=input.trim();
+  if(!v){await removeMfxAccount(i);return;}
+  if(myfxbookAccountIds.some((id,idx)=>idx!==i&&id===v)){
+    alert('That account is already in your list.');
+    return;
+  }
+  myfxbookAccountIds[i]=v;
+  await persistMfxAccounts();
+}
+
+async function removeMfxAccount(i){
+  const id=myfxbookAccountIds[i];
+  if(!id)return;
+  if(!confirm(`Remove myfxbook account ${id} from sync?\n\nTrades already synced from it stay in your journal — this only stops pulling new ones.`))return;
+  myfxbookAccountIds.splice(i,1);
+  await persistMfxAccounts();
 }
 
 // Myfxbook history rows are already closed round-trip trades (unlike
@@ -2624,88 +2592,93 @@ function mfxHashId(str){
   return 4294967296*(h2>>>0)+(h1>>>0);
 }
 async function syncMyfxbook(){
-  if(!myfxbookAccountId){
-    alert('Set your myfxbook account ID first (click "Set account ID…" in the sidebar).');
+  if(!myfxbookAccountIds.length){
+    alert('Add your myfxbook account ID first (click "+ Add account" in the sidebar).');
     return;
   }
   if(myfxbookSyncing)return;
   const btn=document.getElementById('mfx-sync-btn');
   myfxbookSyncing=true;
   if(btn)btn.disabled=true;
-  showSyncStatus('syncing','⟳ Pulling myfxbook…');
-  try{
-    const {data:resp,error}=await supabaseClient.functions.invoke('myfxbook-sync',{body:{accountId:myfxbookAccountId}});
-    if(error)throw error;
-    if(resp&&resp.error)throw new Error(resp.error);
-    const trades=(resp&&resp.trades)||[];
-    let created=0, updated=0, skipped=0;
+  showSyncStatus('syncing',`⟳ Pulling myfxbook (${myfxbookAccountIds.length} account${myfxbookAccountIds.length>1?'s':''})…`);
+  let created=0, updated=0, skipped=0;
+  const failedAccounts=[];
 
-    for(const t of trades){
-      if(!t.pair||t.external_id==null||(t.entry_time==null&&t.exit_time==null)){
-        skipped++;
-        continue;
-      }
-      const dk=dateKeyFromMs(t.exit_time||t.entry_time);
-      const fillIds=['mfx:'+t.external_id];
-      const existing=findExistingTradeByFillIds(fillIds);
-      if(existing){
-        const ex=existing.trade;
-        ex.pnl=t.pnl;ex.result=t.result;ex.fees=t.fees||0;
-        ex.size=t.size;ex.entry_price=t.entry_price;ex.exit_price=t.exit_price;
-        ex.direction=t.direction;ex.entry_time=t.entry_time;ex.exit_time=t.exit_time;
-        ex.notes=t.notes;ex.source='myfxbook';ex.hl_fill_ids=fillIds;
-        if(existing.dk!==dk){
-          data[existing.dk].trades.splice(existing.idx,1);
-          if(!data[existing.dk].trades.length)delete data[existing.dk];
-          if(!data[dk])data[dk]={trades:[]};
-          data[dk].trades.push(ex);
+  for(const accountId of myfxbookAccountIds){
+    try{
+      const {data:resp,error}=await supabaseClient.functions.invoke('myfxbook-sync',{body:{accountId}});
+      if(error)throw error;
+      if(resp&&resp.error)throw new Error(resp.error);
+      const trades=(resp&&resp.trades)||[];
+
+      for(const t of trades){
+        if(!t.pair||t.external_id==null||(t.entry_time==null&&t.exit_time==null)){
+          skipped++;
+          continue;
         }
-        await cloudUpsertTrade(dk,ex);
-        updated++;
-      } else {
-        const trade={
-          id:mfxHashId(t.external_id),
-          pair:t.pair,timeframe:'',pnl:t.pnl,result:t.result,
-          bias:t.direction==='Long'?'Bullish':t.direction==='Short'?'Bearish':'',
-          setup:'',plan:'',notes:t.notes||'',tags:[],screenshots:[],youtube:'',
-          source:'myfxbook',fees:t.fees||0,hl_fill_ids:fillIds,is_draft:true,
-          size:t.size,entry_price:t.entry_price,exit_price:t.exit_price,
-          partial_exits:[],direction:t.direction,entry_time:t.entry_time,exit_time:t.exit_time
-        };
-        if(!data[dk])data[dk]={trades:[]};
-        data[dk].trades.push(trade);
-        await cloudUpsertTrade(dk,trade);
-        created++;
+        const dk=dateKeyFromMs(t.exit_time||t.entry_time);
+        // Namespace by account ID so two different myfxbook accounts can
+        // never collide on the same external_id/hash.
+        const nsId=accountId+':'+t.external_id;
+        const fillIds=['mfx:'+nsId];
+        const existing=findExistingTradeByFillIds(fillIds);
+        if(existing){
+          const ex=existing.trade;
+          ex.pnl=t.pnl;ex.result=t.result;ex.fees=t.fees||0;
+          ex.size=t.size;ex.entry_price=t.entry_price;ex.exit_price=t.exit_price;
+          ex.direction=t.direction;ex.entry_time=t.entry_time;ex.exit_time=t.exit_time;
+          ex.notes=t.notes;ex.source='myfxbook';ex.hl_fill_ids=fillIds;
+          if(existing.dk!==dk){
+            data[existing.dk].trades.splice(existing.idx,1);
+            if(!data[existing.dk].trades.length)delete data[existing.dk];
+            if(!data[dk])data[dk]={trades:[]};
+            data[dk].trades.push(ex);
+          }
+          await cloudUpsertTrade(dk,ex);
+          updated++;
+        } else {
+          const trade={
+            id:mfxHashId(nsId),
+            pair:t.pair,timeframe:'',pnl:t.pnl,result:t.result,
+            bias:t.direction==='Long'?'Bullish':t.direction==='Short'?'Bearish':'',
+            setup:'',plan:'',notes:t.notes||'',tags:[],screenshots:[],youtube:'',
+            source:'myfxbook',fees:t.fees||0,hl_fill_ids:fillIds,is_draft:true,
+            size:t.size,entry_price:t.entry_price,exit_price:t.exit_price,
+            partial_exits:[],direction:t.direction,entry_time:t.entry_time,exit_time:t.exit_time
+          };
+          if(!data[dk])data[dk]={trades:[]};
+          data[dk].trades.push(trade);
+          await cloudUpsertTrade(dk,trade);
+          created++;
+        }
       }
+    }catch(err){
+      console.error(`myfxbook sync failed for account ${accountId}:`,err);
+      failedAccounts.push(accountId);
     }
-
-    myfxbookLastSync=Date.now();
-    safeSetItem('tj2_mfx_lastsync',String(myfxbookLastSync));
-    await cloudSaveSettings();
-    saveData();
-    renderCalendar();renderQuarterlyOverview();updateStats();renderMfxStatus();
-
-    const parts=[];
-    if(created)parts.push(`${created} new`);
-    if(updated)parts.push(`${updated} updated`);
-    if(skipped)parts.push(`${skipped} skipped`);
-    if(!parts.length){
-      const cc=resp&&resp.closedCount||0, oc=resp&&resp.openCount||0;
-      showSyncStatus('synced','✓ Nothing to sync');
-      if(cc===0&&oc===0){
-        console.info('myfxbook: account has no closed or open trades yet.');
-      }
-    } else {
-      showSyncStatus('synced',`✓ ${parts.join(', ')}`);
-    }
-  }catch(err){
-    console.error('myfxbook sync failed:',err);
-    showSyncStatus('error','⚠ Sync failed');
-    alert('myfxbook sync failed: '+(err.message||err));
-  }finally{
-    myfxbookSyncing=false;
-    if(btn)btn.disabled=false;
   }
+
+  myfxbookLastSync=Date.now();
+  safeSetItem('tj2_mfx_lastsync',String(myfxbookLastSync));
+  await cloudSaveSettings();
+  saveData();
+  renderCalendar();renderQuarterlyOverview();updateStats();renderMfxStatus();
+
+  const parts=[];
+  if(created)parts.push(`${created} new`);
+  if(updated)parts.push(`${updated} updated`);
+  if(skipped)parts.push(`${skipped} skipped`);
+  if(failedAccounts.length){
+    showSyncStatus('error',`⚠ ${failedAccounts.length} account${failedAccounts.length>1?'s':''} failed`);
+    alert('myfxbook sync failed for account(s): '+failedAccounts.join(', ')+'\n\nCheck the account ID(s) and try again.');
+  } else if(!parts.length){
+    showSyncStatus('synced','✓ Nothing to sync');
+  } else {
+    showSyncStatus('synced',`✓ ${parts.join(', ')}`);
+  }
+
+  myfxbookSyncing=false;
+  if(btn)btn.disabled=false;
 }
 
 async function persistHlWallets(){
