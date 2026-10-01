@@ -250,6 +250,15 @@ body.privacy .tc-prices::after{content:'••••';visibility:visible;positio
 .tc-shots img{height:48px;border-radius:5px;object-fit:cover;border:1px solid #c4ced4;cursor:pointer}
 .tc-del{position:absolute;top:7px;right:7px;background:none;border:none;color:#8493a1;cursor:pointer;font-size:0.78rem}
 .tc-del:hover{color:#b91c1c}
+.combine-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.combine-bar button{border:1px solid #0077c0;background:#e3f1fb;color:#0077c0;border-radius:7px;padding:6px 12px;font-size:0.75rem;font-weight:600;cursor:pointer}
+.combine-bar button:disabled{opacity:0.4;cursor:not-allowed}
+.combine-bar .cb-go{background:#0077c0;color:#fff}
+.trade-card.cmb-selected{border-color:#0077c0;background:#e3f1fb}
+.tc-check{position:absolute;top:11px;right:11px;width:16px;height:16px;accent-color:#0077c0;cursor:pointer}
+body.dark .combine-bar button{background:#0d1014;border-color:#2b9be0;color:#2b9be0}
+body.dark .combine-bar .cb-go{background:#2b9be0;color:#0a0c0f}
+body.dark .trade-card.cmb-selected{border-color:#2b9be0 !important;background:rgba(43,155,224,0.12) !important}
 .detail-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin-bottom:11px}
 .detail-item{background:#f4f7fa;border-radius:7px;padding:7px 9px}
 .detail-lbl{font-size:0.6rem;color:#8493a1;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:2px}
@@ -698,6 +707,8 @@ let currentQTrades=[],activeSetupFilter='All',pendingYT='';
 let qYear=new Date().getFullYear();
 let sidebarHidden=false;
 let activePairFilter=null;
+let cmbMode=false;
+const cmbSel=new Set();
 let startingBalance=0;
 let hlWallets=[]; // array of wallet address strings — synced together, merged into one calendar
 let hlLastSync=0;
@@ -1746,28 +1757,97 @@ function renderDaySummary(){
     <div class="sum-pill"><div class="sum-val">${wins}W / ${losses}L</div><div class="sum-lbl">Results</div></div>`;
 }
 
+function toggleCombineMode(){
+  cmbMode=!cmbMode;cmbSel.clear();
+  renderLoggedTrades();
+}
+function cmbToggle(id){
+  const k=String(id);
+  if(cmbSel.has(k))cmbSel.delete(k);else cmbSel.add(k);
+  renderLoggedTrades();
+}
+async function combineSelectedTrades(){
+  const trades=(data[activeDate]||{}).trades||[];
+  const picked=trades.filter(t=>cmbSel.has(String(t.id)));
+  if(picked.length<2)return;
+  const pairs=new Set(picked.map(t=>t.pair));
+  const dirs=new Set(picked.map(t=>t.direction||''));
+  if(pairs.size>1||dirs.size>1){
+    if(!confirm('These trades have different pairs or directions. Combine anyway?'))return;
+  }
+  if(!confirm(`Combine ${picked.length} trades into one?`))return;
+  picked.sort((a,b)=>(a.entry_time||0)-(b.entry_time||0));
+  const base=picked[0];
+  const num=v=>parseFloat(v)||0;
+  const totalSize=picked.reduce((s,t)=>s+num(t.size),0);
+  const wavg=key=>{
+    const w=picked.filter(t=>t[key]!=null&&t[key]!==''&&num(t.size)>0);
+    const sz=w.reduce((s,t)=>s+num(t.size),0);
+    if(!sz)return base[key]!=null?base[key]:null;
+    return w.reduce((s,t)=>s+num(t[key])*num(t.size),0)/sz;
+  };
+  const pnl=picked.reduce((s,t)=>s+num(t.pnl),0);
+  const first=k=>{const x=picked.find(t=>t[k]);return x?x[k]:base[k]||'';};
+  const times=k=>picked.map(t=>t[k]).filter(v=>v!=null);
+  const notes=[...new Set(picked.map(t=>(t.notes||'').trim()).filter(Boolean))].join('\n');
+  const merged=Object.assign({},base,{
+    pnl,result:autoResult(pnl),
+    size:totalSize||base.size,
+    entry_price:wavg('entry_price'),
+    exit_price:wavg('exit_price'),
+    fees:picked.reduce((s,t)=>s+num(t.fees),0),
+    hl_fill_ids:[...new Set(picked.flatMap(t=>t.hl_fill_ids||[]))],
+    partial_exits:picked.flatMap(t=>t.partial_exits||[]),
+    tags:[...new Set(picked.flatMap(t=>t.tags||[]))],
+    screenshots:picked.flatMap(t=>t.screenshots||[]),
+    notes,
+    timeframe:first('timeframe'),setup:first('setup'),plan:first('plan'),
+    bias:first('bias'),youtube:first('youtube'),
+    direction:first('direction')||null,
+    entry_time:times('entry_time').length?Math.min(...times('entry_time')):base.entry_time,
+    exit_time:times('exit_time').length?Math.max(...times('exit_time')):base.exit_time,
+    is_draft:picked.some(t=>t.is_draft)
+  });
+  const removeIds=new Set(picked.slice(1).map(t=>String(t.id)));
+  data[activeDate].trades=trades.filter(t=>!removeIds.has(String(t.id)));
+  const idx=data[activeDate].trades.findIndex(t=>String(t.id)===String(base.id));
+  data[activeDate].trades[idx]=merged;
+  cmbMode=false;cmbSel.clear();
+  saveData();
+  for(const id of removeIds)await cloudDeleteTrade(id);
+  await cloudUpsertTrade(activeDate,merged);
+  renderDaySummary();renderLoggedTrades();renderCalendar();
+  renderQuarterlyOverview();updateStats();
+}
+
 function renderLoggedTrades(){
   const allTrades=(data[activeDate]||{}).trades||[];
   const wrap=document.getElementById('logged-trades');
-  if(!allTrades.length){wrap.innerHTML='';return;}
+  if(!allTrades.length){cmbMode=false;cmbSel.clear();wrap.innerHTML='';return;}
+  if(allTrades.length<2){cmbMode=false;cmbSel.clear();}
+  const cmbBar=allTrades.length>=2
+    ?(cmbMode
+      ?`<div class="combine-bar"><button onclick="toggleCombineMode()">Cancel</button><button class="cb-go" ${cmbSel.size<2?'disabled':''} onclick="combineSelectedTrades()">Combine ${cmbSel.size>=2?'('+cmbSel.size+')':''}</button></div>`
+      :`<div class="combine-bar"><span></span><button onclick="toggleCombineMode()">Select to combine</button></div>`)
+    :'';
   const indexed=allTrades.map((t,i)=>({trade:t,idx:i}));
   const filtered=activePairFilter?indexed.filter(x=>x.trade.pair===activePairFilter):indexed;
   const chip=activePairFilter
     ?`<div class="pair-filter-chip">Showing ${activePairFilter} only <button onclick="clearPairFilter()" title="Show all trades for this day">×</button></div>`
     :'';
   if(!filtered.length){
-    wrap.innerHTML=chip+`<div style="color:#8493a1;font-size:0.78rem;padding:14px;text-align:center">No ${activePairFilter} trades logged on this day.</div>`;
+    wrap.innerHTML=cmbBar+chip+`<div style="color:#8493a1;font-size:0.78rem;padding:14px;text-align:center">No ${activePairFilter} trades logged on this day.</div>`;
     return;
   }
-  wrap.innerHTML=chip+filtered.map(({trade:t,idx:i})=>{
+  wrap.innerHTML=cmbBar+chip+filtered.map(({trade:t,idx:i})=>{
     let realizedSoFar='';
     if(t.result==='Open' && (t.partial_exits||[]).length){
       const realized=t.partial_exits.reduce((s,p)=>s+(parseFloat(p.pnl)||0)-(parseFloat(p.fee)||0),0);
       realizedSoFar=`<span class="tc-realized ${realized>=0?'green':'red'}">Realized: ${pnlStr(realized)}</span>`;
     }
     return `
-    <div class="trade-card" onclick="openTradeDetail('${activeDate}',${i})">
-      <button class="tc-del" onclick="event.stopPropagation();deleteTrade(${i})">🗑</button>
+    <div class="trade-card ${cmbMode&&cmbSel.has(String(t.id))?'cmb-selected':''}" onclick="${cmbMode?`cmbToggle('${t.id}')`:`openTradeDetail('${activeDate}',${i})`}">
+      ${cmbMode?`<input type="checkbox" class="tc-check" ${cmbSel.has(String(t.id))?'checked':''}>`:`<button class="tc-del" onclick="event.stopPropagation();deleteTrade(${i})">🗑</button>`}
       <div class="trade-card-header">
         ${t.source==='hyperliquid'?`<span class="tc-source-icon" title="Auto-synced from Hyperliquid">⚡</span>`:''}
         <span class="tc-pair">${t.pair||'—'}</span>
@@ -2591,62 +2671,6 @@ function mfxHashId(str){
   h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);
   return 4294967296*(h2>>>0)+(h1>>>0);
 }
-// Two myfxbook trades count as the same real trade if pair, direction,
-// size and both entry/exit price+time all match — regardless of which
-// account ID or fill-id key produced them. Catches both the account-
-// namespacing dedup-key change (fixed above, but already left duplicates
-// behind) and the case of two myfxbook account IDs mirroring the same
-// underlying MT5 login.
-function mfxTradeSignature(t){
-  return [t.pair,t.direction,t.size,t.entry_price,t.exit_price,t.entry_time,t.exit_time]
-    .map(v=>v==null?'':String(v)).join('|');
-}
-
-async function combineDuplicateMfxTrades(){
-  const groups={};
-  for(const dk in data){
-    const trades=(data[dk]||{}).trades||[];
-    trades.forEach((t,i)=>{
-      if(t.source!=='myfxbook')return;
-      const sig=mfxTradeSignature(t);
-      if(!sig.trim())return;
-      (groups[sig]=groups[sig]||[]).push({dk,idx:i,trade:t});
-    });
-  }
-  let mergedCount=0;
-  for(const sig in groups){
-    const group=groups[sig];
-    if(group.length<2)continue;
-    // Prefer whichever copy already has a fee recorded (the commission-fix
-    // sync), then fall back to the first one found.
-    group.sort((a,b)=>Math.abs(b.trade.fees||0)-Math.abs(a.trade.fees||0));
-    const keepEntry=group[0];
-    const keep=keepEntry.trade;
-    const dupes=group.slice(1);
-    const allFillIds=new Set(keep.hl_fill_ids||[]);
-    let maxFee=Math.abs(keep.fees||0);
-    for(const d of dupes){
-      (d.trade.hl_fill_ids||[]).forEach(id=>allFillIds.add(id));
-      maxFee=Math.max(maxFee,Math.abs(d.trade.fees||0));
-    }
-    keep.hl_fill_ids=[...allFillIds];
-    keep.fees=maxFee;
-    await cloudUpsertTrade(keepEntry.dk,keep);
-    const byDk={};
-    for(const d of dupes){(byDk[d.dk]=byDk[d.dk]||[]).push(d);}
-    for(const dkKey in byDk){
-      const list=byDk[dkKey].sort((a,b)=>b.idx-a.idx); // delete highest index first
-      for(const d of list){
-        await cloudDeleteTrade(d.trade.id);
-        data[dkKey].trades.splice(d.idx,1);
-      }
-      if(data[dkKey]&&!data[dkKey].trades.length)delete data[dkKey];
-    }
-    mergedCount+=dupes.length;
-  }
-  return mergedCount;
-}
-
 async function syncMyfxbook(){
   if(!myfxbookAccountIds.length){
     alert('Add your myfxbook account ID first (click "+ Add account" in the sidebar).');
@@ -2719,8 +2743,6 @@ async function syncMyfxbook(){
     }
   }
 
-  const combined=await combineDuplicateMfxTrades();
-
   myfxbookLastSync=Date.now();
   safeSetItem('tj2_mfx_lastsync',String(myfxbookLastSync));
   await cloudSaveSettings();
@@ -2730,7 +2752,6 @@ async function syncMyfxbook(){
   const parts=[];
   if(created)parts.push(`${created} new`);
   if(updated)parts.push(`${updated} updated`);
-  if(combined)parts.push(`${combined} combined`);
   if(skipped)parts.push(`${skipped} skipped`);
   if(failedAccounts.length){
     showSyncStatus('error',`⚠ ${failedAccounts.length} account${failedAccounts.length>1?'s':''} failed`);
