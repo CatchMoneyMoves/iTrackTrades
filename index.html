@@ -713,6 +713,21 @@ let startingBalance=0;
 let hlWallets=[]; // array of wallet address strings — synced together, merged into one calendar
 let hlLastSync=0;
 let myfxbookAccountIds=[]; // array of myfxbook account ID strings — synced together, merged into one calendar
+
+// Reads the myfxbook_account_id column, which stores the whole account
+// list as a JSON array string (e.g. "[\"12221009\",\"99887766\"]"). A plain
+// un-JSON value in there (e.g. "12221009") is an old single-ID save from
+// before multi-account support — treat it as a one-item list.
+function parseMfxAccountIds(raw){
+  if(!raw)return [];
+  try{
+    const parsed=JSON.parse(raw);
+    if(Array.isArray(parsed))return parsed.filter(Boolean);
+    return [String(raw)];
+  }catch(e){
+    return [String(raw)];
+  }
+}
 let myfxbookLastSync=0;
 let myfxbookSyncing=false;
 let hlSyncing=false;
@@ -781,10 +796,11 @@ async function cloudPullAll(){
       if(!hlWallets.length && settings.hl_wallet)hlWallets=[settings.hl_wallet];
       startingBalance=settings.starting_balance!=null?parseFloat(settings.starting_balance)||0:0;
       hlLastSync=settings.hl_last_sync!=null?parseInt(settings.hl_last_sync)||0:0;
-      // Multi-account: read the new list; if it's empty but the legacy
-      // single myfxbook_account_id exists, migrate it into the list.
-      myfxbookAccountIds=Array.isArray(settings.myfxbook_account_ids)?settings.myfxbook_account_ids.filter(Boolean):[];
-      if(!myfxbookAccountIds.length && settings.myfxbook_account_id)myfxbookAccountIds=[settings.myfxbook_account_id];
+      // Multi-account: the list is stored as JSON text inside the existing
+      // myfxbook_account_id column (no new database column needed). A plain
+      // un-JSON string in there is an old single-ID save — treat it as a
+      // one-item list.
+      myfxbookAccountIds=parseMfxAccountIds(settings.myfxbook_account_id);
       myfxbookLastSync=settings.myfxbook_last_sync!=null?parseInt(settings.myfxbook_last_sync)||0:0;
     }
     if(!customPairs.length)customPairs=['XAUUSD','EURUSD','GBPUSD','USDJPY','USDCAD','AUDUSD','NZDUSD','US30','NAS100','SPX500'];
@@ -809,7 +825,10 @@ async function cloudPullAll(){
     startingBalance=parseFloat(localStorage.getItem('tj2_balance')||'0')||0;
     hlLastSync=parseInt(localStorage.getItem('tj2_hl_lastsync')||'0',10)||0;
     try{myfxbookAccountIds=JSON.parse(localStorage.getItem('tj2_mfx_account_ids')||'[]');}catch(e){myfxbookAccountIds=[];}
-    if(!myfxbookAccountIds.length){const legacy=localStorage.getItem('tj2_mfx_account_id');if(legacy)myfxbookAccountIds=[legacy];}
+    if(!myfxbookAccountIds.length){
+      const legacy=localStorage.getItem('tj2_mfx_account_id');
+      if(legacy)myfxbookAccountIds=parseMfxAccountIds(legacy);
+    }
     myfxbookLastSync=parseInt(localStorage.getItem('tj2_mfx_lastsync')||'0',10)||0;
     if(!customPairs.length)customPairs=['XAUUSD','EURUSD','GBPUSD','USDJPY','USDCAD','AUDUSD','NZDUSD','US30','NAS100','SPX500'];
     if(!quickLinks.length)quickLinks=[{name:'TradingView',url:'https://tradingview.com'},{name:'Hyperliquid',url:'https://app.hyperliquid.xyz/portfolio'},{name:'Discord',url:'https://discord.com'}];
@@ -889,8 +908,9 @@ async function cloudSaveSettings(){
       hl_wallet:hlWallets[0]||null, // keep legacy single field populated for backward compat
       starting_balance:startingBalance||0,
       hl_last_sync:hlLastSync||0,
-      myfxbook_account_ids:myfxbookAccountIds,
-      myfxbook_account_id:myfxbookAccountIds[0]||null, // keep legacy single field populated for backward compat
+      // Whole account list stored as JSON text in the existing column —
+      // no schema change required, so this can never silently fail to save.
+      myfxbook_account_id:myfxbookAccountIds.length?JSON.stringify(myfxbookAccountIds):null,
       myfxbook_last_sync:myfxbookLastSync||0,
       updated_at:new Date().toISOString()
     };
@@ -902,18 +922,12 @@ async function cloudSaveSettings(){
         const retry=await supabaseClient.from('user_settings').upsert(row);
         if(retry.error)throw retry.error;
         console.warn("Supabase 'hl_wallets' column missing — only the first wallet was saved. Add column: ALTER TABLE user_settings ADD COLUMN hl_wallets jsonb DEFAULT '[]';");
-      } else if(String(error.message||'').toLowerCase().includes('myfxbook_account_ids')){
-        delete row.myfxbook_account_ids;
-        const retry=await supabaseClient.from('user_settings').upsert(row);
-        if(retry.error)throw retry.error;
-        console.warn("Supabase 'myfxbook_account_ids' column missing — only the first account was saved. Add column: ALTER TABLE user_settings ADD COLUMN myfxbook_account_ids jsonb DEFAULT '[]';");
       } else if(String(error.message||'').toLowerCase().includes('myfxbook')){
-        delete row.myfxbook_account_ids;
         delete row.myfxbook_account_id;
         delete row.myfxbook_last_sync;
         const retry=await supabaseClient.from('user_settings').upsert(row);
         if(retry.error)throw retry.error;
-        console.warn("Supabase 'myfxbook_account_id'/'myfxbook_last_sync' columns missing. Add columns: ALTER TABLE user_settings ADD COLUMN myfxbook_account_ids jsonb DEFAULT '[]'; ALTER TABLE user_settings ADD COLUMN myfxbook_account_id text; ALTER TABLE user_settings ADD COLUMN myfxbook_last_sync bigint DEFAULT 0;");
+        console.warn("Supabase 'myfxbook_account_id'/'myfxbook_last_sync' columns missing. Add columns: ALTER TABLE user_settings ADD COLUMN myfxbook_account_id text; ALTER TABLE user_settings ADD COLUMN myfxbook_last_sync bigint DEFAULT 0;");
       } else throw error;
     }
   }catch(err){console.error('Settings save failed:',err);}
@@ -2709,17 +2723,31 @@ async function syncMyfxbook(){
         const existing=findExistingTradeByFillIds([newFillId,legacyFillId]);
         if(existing){
           const ex=existing.trade;
-          ex.pnl=t.pnl;ex.result=t.result;ex.fees=t.fees||0;
-          ex.size=t.size;ex.entry_price=t.entry_price;ex.exit_price=t.exit_price;
-          ex.direction=t.direction;ex.entry_time=t.entry_time;ex.exit_time=t.exit_time;
-          ex.notes=t.notes;ex.source='myfxbook';ex.hl_fill_ids=[newFillId,legacyFillId];
-          if(existing.dk!==dk){
+          // Keep the dedupe key current either way, so this trade keeps
+          // matching on future syncs instead of risking a duplicate.
+          ex.hl_fill_ids=[newFillId,legacyFillId];
+          // Once you've manually edited a synced trade (is_draft goes
+          // false the moment you save it), later syncs stop overwriting
+          // your numbers — only brand-new, still-DRAFT trades get refreshed
+          // from myfxbook automatically.
+          if(ex.is_draft){
+            ex.pnl=t.pnl;ex.result=t.result;ex.fees=t.fees||0;
+            ex.size=t.size;ex.entry_price=t.entry_price;ex.exit_price=t.exit_price;
+            ex.direction=t.direction;ex.entry_time=t.entry_time;ex.exit_time=t.exit_time;
+            ex.notes=t.notes;ex.source='myfxbook';
+          }
+          // Only relocate between calendar days when we actually just
+          // updated this trade's own times — an edited trade keeps its old
+          // times, so dk here (built from the incoming data) wouldn't apply.
+          let saveDk=existing.dk;
+          if(ex.is_draft && existing.dk!==dk){
             data[existing.dk].trades.splice(existing.idx,1);
             if(!data[existing.dk].trades.length)delete data[existing.dk];
             if(!data[dk])data[dk]={trades:[]};
             data[dk].trades.push(ex);
+            saveDk=dk;
           }
-          await cloudUpsertTrade(dk,ex);
+          await cloudUpsertTrade(saveDk,ex);
           updated++;
         } else {
           const trade={
