@@ -2689,6 +2689,109 @@ function mfxHashId(str){
   const hi=(h2>>>0)%1048576; // 20 bits
   return hi*4294967296+(h1>>>0); // max ~4.5e15, always safe
 }
+// ---- myfxbook leg matching ------------------------------------------------
+// Every synced myfxbook row is one "leg". A trade in the journal remembers the
+// legs it covers in hl_fill_ids (a combined trade covers several).
+// myfxbook has no ticket number, so identical legs (same pair, minute, price,
+// lots) can't be told apart. Instead of guessing WHICH one is which, sync
+// COUNTS: if myfxbook has 3 identical legs and the journal already covers 3,
+// nothing is added — whatever order myfxbook returns them in.
+function mfxLegKey(fillId,accountId){
+  let s=String(fillId);
+  if(s.indexOf('mfx:')!==0)return null;
+  s=s.slice(4);
+  if(accountId&&s.indexOf(accountId+':')===0)s=s.slice(String(accountId).length+1);
+  return s;
+}
+function mfxCoreOf(legKey){return String(legKey).replace(/\|#\d+$/,'');}
+function mfxFindLoc(trade){
+  for(const dk in data){
+    const arr=(data[dk]||{}).trades||[];
+    const i=arr.indexOf(trade);
+    if(i>=0)return {dk,idx:i};
+  }
+  return null;
+}
+async function mfxApplyTrades(accountId,trades,cutoff,save){
+  let created=0,updated=0,skipped=0;
+  // What the journal already covers, per leg and per identical-leg group.
+  const legOwner={}, coreCount={};
+  for(const dk in data)for(const tr of ((data[dk]||{}).trades||[])){
+    const seen=new Set();
+    for(const fid of (tr.hl_fill_ids||[])){
+      const lk=mfxLegKey(fid,accountId);
+      if(!lk||seen.has(lk))continue;
+      seen.add(lk);
+      if(!legOwner[lk])legOwner[lk]=tr;
+      const c=mfxCoreOf(lk);coreCount[c]=(coreCount[c]||0)+1;
+    }
+  }
+  // Group incoming legs by identical-leg group.
+  const groups={};
+  for(const t of trades){
+    if(!t.pair||t.external_id==null||(t.entry_time==null&&t.exit_time==null)){skipped++;continue;}
+    if(t.result!=='Open'&&cutoff){
+      const tm=Number(t.exit_time||t.entry_time||0);
+      if(tm<cutoff){skipped++;continue;}
+    }
+    const c=mfxCoreOf(t.external_id);
+    (groups[c]=groups[c]||[]).push(t);
+  }
+  for(const c in groups){
+    const rows=groups[c].slice().sort((a,b)=>String(a.external_id)<String(b.external_id)?-1:1);
+    const unmatched=[];
+    for(const t of rows){
+      const ex=legOwner[String(t.external_id)];
+      if(!ex){unmatched.push(t);continue;}
+      const newFillId='mfx:'+accountId+':'+t.external_id;
+      // ADD this leg's key — never replace the list (a combined trade keeps
+      // all of its legs, otherwise the rest come back as drafts).
+      if(!(ex.hl_fill_ids||[]).includes(newFillId))ex.hl_fill_ids=[...(ex.hl_fill_ids||[]),newFillId];
+      const loc=mfxFindLoc(ex);
+      if(!loc){skipped++;continue;}
+      let saveDk=loc.dk;
+      // Only untouched single-leg drafts refresh from myfxbook (e.g. open →
+      // closed). Anything you edited or combined is left alone.
+      if(ex.is_draft){
+        ex.pnl=t.pnl;ex.result=t.result;ex.fees=t.fees||0;
+        ex.size=t.size;ex.entry_price=t.entry_price;ex.exit_price=t.exit_price;
+        ex.direction=t.direction;ex.entry_time=t.entry_time;ex.exit_time=t.exit_time;
+        ex.notes=t.notes;ex.source='myfxbook';
+        const dk=dateKeyFromMs(t.exit_time||t.entry_time);
+        if(dk!==loc.dk){
+          data[loc.dk].trades.splice(loc.idx,1);
+          if(!data[loc.dk].trades.length)delete data[loc.dk];
+          if(!data[dk])data[dk]={trades:[]};
+          data[dk].trades.push(ex);
+          saveDk=dk;
+        }
+      }
+      await save(saveDk,ex);
+      updated++;
+    }
+    // Only add as many as myfxbook has MORE than the journal already covers.
+    const need=Math.max(0,rows.length-(coreCount[c]||0));
+    unmatched.forEach((t,i)=>{if(i>=need)skipped++;});
+    for(const t of unmatched.slice(0,need)){
+      const nsId=accountId+':'+t.external_id;
+      const dk=dateKeyFromMs(t.exit_time||t.entry_time);
+      const trade={
+        id:mfxHashId(nsId),
+        pair:t.pair,timeframe:'',pnl:t.pnl,result:t.result,
+        bias:t.direction==='Long'?'Bullish':t.direction==='Short'?'Bearish':'',
+        setup:'',plan:'',notes:t.notes||'',tags:[],screenshots:[],youtube:'',
+        source:'myfxbook',fees:t.fees||0,hl_fill_ids:['mfx:'+nsId],is_draft:true,
+        size:t.size,entry_price:t.entry_price,exit_price:t.exit_price,
+        partial_exits:[],direction:t.direction,entry_time:t.entry_time,exit_time:t.exit_time
+      };
+      if(!data[dk])data[dk]={trades:[]};
+      data[dk].trades.push(trade);
+      await save(dk,trade);
+      created++;
+    }
+  }
+  return {created,updated,skipped};
+}
 async function syncMyfxbook(){
   if(!myfxbookAccountIds.length){
     alert('Add your myfxbook account ID first (click "+ Add account" in the sidebar).');
@@ -2715,70 +2818,8 @@ async function syncMyfxbook(){
       if(resp&&resp.error)throw new Error(resp.error);
       const trades=(resp&&resp.trades)||[];
 
-      for(const t of trades){
-        if(!t.pair||t.external_id==null||(t.entry_time==null&&t.exit_time==null)){
-          skipped++;
-          continue;
-        }
-        if(t.result!=='Open'){
-          const tm=t.exit_time||t.entry_time||0;
-          if(tm<MFX_SYNC_CUTOFF){skipped++;continue;}
-        }
-        const dk=dateKeyFromMs(t.exit_time||t.entry_time);
-        // Namespace by account ID so two different myfxbook accounts can
-        // never collide on the same external_id/hash — but a trade synced
-        // BEFORE this namespacing existed is still tagged with the old,
-        // un-namespaced key, so check both forms or it'll look "new" again
-        // and sync in as a duplicate.
-        const nsId=accountId+':'+t.external_id;
-        const newFillId='mfx:'+nsId;
-        const legacyFillId='mfx:'+t.external_id;
-        const fillIds=[newFillId];
-        const existing=findExistingTradeByFillIds([newFillId,legacyFillId]);
-        if(existing){
-          const ex=existing.trade;
-          // Keep the dedupe key current either way, so this trade keeps
-          // matching on future syncs instead of risking a duplicate.
-          ex.hl_fill_ids=[newFillId,legacyFillId];
-          // Once you've manually edited a synced trade (is_draft goes
-          // false the moment you save it), later syncs stop overwriting
-          // your numbers — only brand-new, still-DRAFT trades get refreshed
-          // from myfxbook automatically.
-          if(ex.is_draft){
-            ex.pnl=t.pnl;ex.result=t.result;ex.fees=t.fees||0;
-            ex.size=t.size;ex.entry_price=t.entry_price;ex.exit_price=t.exit_price;
-            ex.direction=t.direction;ex.entry_time=t.entry_time;ex.exit_time=t.exit_time;
-            ex.notes=t.notes;ex.source='myfxbook';
-          }
-          // Only relocate between calendar days when we actually just
-          // updated this trade's own times — an edited trade keeps its old
-          // times, so dk here (built from the incoming data) wouldn't apply.
-          let saveDk=existing.dk;
-          if(ex.is_draft && existing.dk!==dk){
-            data[existing.dk].trades.splice(existing.idx,1);
-            if(!data[existing.dk].trades.length)delete data[existing.dk];
-            if(!data[dk])data[dk]={trades:[]};
-            data[dk].trades.push(ex);
-            saveDk=dk;
-          }
-          await cloudUpsertTrade(saveDk,ex);
-          updated++;
-        } else {
-          const trade={
-            id:mfxHashId(nsId),
-            pair:t.pair,timeframe:'',pnl:t.pnl,result:t.result,
-            bias:t.direction==='Long'?'Bullish':t.direction==='Short'?'Bearish':'',
-            setup:'',plan:'',notes:t.notes||'',tags:[],screenshots:[],youtube:'',
-            source:'myfxbook',fees:t.fees||0,hl_fill_ids:fillIds,is_draft:true,
-            size:t.size,entry_price:t.entry_price,exit_price:t.exit_price,
-            partial_exits:[],direction:t.direction,entry_time:t.entry_time,exit_time:t.exit_time
-          };
-          if(!data[dk])data[dk]={trades:[]};
-          data[dk].trades.push(trade);
-          await cloudUpsertTrade(dk,trade);
-          created++;
-        }
-      }
+      const r=await mfxApplyTrades(accountId,trades,MFX_SYNC_CUTOFF,cloudUpsertTrade);
+      created+=r.created;updated+=r.updated;skipped+=r.skipped;
     }catch(err){
       console.error(`myfxbook sync failed for account ${accountId}:`,err);
       failedAccounts.push(accountId);
