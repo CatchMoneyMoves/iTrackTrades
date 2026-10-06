@@ -2702,6 +2702,23 @@ async function syncMyfxbook(){
   let created=0, updated=0, skipped=0;
   const failedAccounts=[];
 
+  // Hard cutoff: never re-look-at any closed trade at or before the latest
+  // closed myfxbook trade you already have locally. Two genuinely identical
+  // myfxbook rows (same price/pips/profit/time, no field to tell them apart)
+  // could otherwise flip which one is "new" between syncs and keep
+  // resurrecting as duplicates even after being combined/deleted. Anything
+  // already on record stays final — only trades newer than your latest one
+  // get pulled in going forward.
+  let mfxWatermark=0;
+  for(const dk2 in data){
+    for(const tr of (data[dk2].trades||[])){
+      if(tr.source==='myfxbook'&&tr.result!=='Open'){
+        const tm=tr.exit_time||tr.entry_time||0;
+        if(tm>mfxWatermark)mfxWatermark=tm;
+      }
+    }
+  }
+
   for(const accountId of myfxbookAccountIds){
     try{
       const {data:resp,error}=await supabaseClient.functions.invoke('myfxbook-sync',{body:{accountId}});
@@ -2713,6 +2730,10 @@ async function syncMyfxbook(){
         if(!t.pair||t.external_id==null||(t.entry_time==null&&t.exit_time==null)){
           skipped++;
           continue;
+        }
+        if(t.result!=='Open'){
+          const tm=t.exit_time||t.entry_time||0;
+          if(tm<=mfxWatermark){skipped++;continue;}
         }
         const dk=dateKeyFromMs(t.exit_time||t.entry_time);
         // Namespace by account ID so two different myfxbook accounts can
