@@ -2702,22 +2702,11 @@ async function syncMyfxbook(){
   let created=0, updated=0, skipped=0;
   const failedAccounts=[];
 
-  // Hard cutoff: never re-look-at any closed trade at or before the latest
-  // closed myfxbook trade you already have locally. Two genuinely identical
-  // myfxbook rows (same price/pips/profit/time, no field to tell them apart)
-  // could otherwise flip which one is "new" between syncs and keep
-  // resurrecting as duplicates even after being combined/deleted. Anything
-  // already on record stays final — only trades newer than your latest one
-  // get pulled in going forward.
-  let mfxWatermark=0;
-  for(const dk2 in data){
-    for(const tr of (data[dk2].trades||[])){
-      if(tr.source==='myfxbook'&&tr.result!=='Open'){
-        const tm=tr.exit_time||tr.entry_time||0;
-        if(tm>mfxWatermark)mfxWatermark=tm;
-      }
-    }
-  }
+  // Hard cutoff: sync never looks at anything that closed before this date,
+  // full stop — no comparing against local records, no trusting myfxbook's
+  // row ids/ordering. Everything up through Oct 6 is considered final;
+  // only trades closing Oct 7 or later ever get pulled in.
+  const MFX_SYNC_CUTOFF=new Date('2026-10-07T00:00:00').getTime();
 
   for(const accountId of myfxbookAccountIds){
     try{
@@ -2733,7 +2722,7 @@ async function syncMyfxbook(){
         }
         if(t.result!=='Open'){
           const tm=t.exit_time||t.entry_time||0;
-          if(tm<=mfxWatermark){skipped++;continue;}
+          if(tm<MFX_SYNC_CUTOFF){skipped++;continue;}
         }
         const dk=dateKeyFromMs(t.exit_time||t.entry_time);
         // Namespace by account ID so two different myfxbook accounts can
