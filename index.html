@@ -510,15 +510,10 @@ body.dark ::-webkit-scrollbar-thumb{background:#2c3a47}
     <button class="hl-sync-btn" id="hl-sync-btn" onclick="syncHyperliquid()"><span style="font-size:12px;flex-shrink:0">🔄</span> Sync now</button>
     <div class="hl-last-sync" id="hl-last-sync"></div>
     <hr class="sidebar-divider">
-    <div class="sidebar-section hl-section-header" onclick="toggleMfxWallets()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;user-select:none">
-      <span>Myfxbook</span>
-      <span id="mfx-section-chevron" style="font-size:0.7rem;opacity:0.6;transition:transform 0.15s">▸</span>
+    <div class="sidebar-section hl-section-header" style="display:flex;align-items:center;justify-content:space-between;user-select:none">
+      <span>MT5</span>
     </div>
-    <div id="mfx-wallets-wrap" style="display:none">
-      <div id="mfx-account-list"></div>
-      <div class="quick-link-add" onclick="addMfxAccount()" title="Add another myfxbook account ID"><span style="font-size:12px;flex-shrink:0">+</span> Add account</div>
-    </div>
-    <button class="hl-sync-btn" id="mfx-sync-btn" onclick="syncMyfxbook()"><span style="font-size:12px;flex-shrink:0">🔄</span> Sync now</button>
+    <button class="hl-sync-btn" id="mfx-sync-btn" onclick="syncMt5()"><span style="font-size:12px;flex-shrink:0">🔄</span> Sync now</button>
     <div class="hl-last-sync" id="mfx-last-sync"></div>
     <hr class="sidebar-divider">
     <div class="sidebar-section">Quick Links</div>
@@ -2849,6 +2844,90 @@ async function syncMyfxbook(){
   if(btn)btn.disabled=false;
 }
 
+// ---- MT5 sync (via MetaApi) ------------------------------------------------
+// Every MT5 position has a real ticket number, so matching is exact: one
+// journal trade per ticket. Account + token live in Supabase secrets.
+const MT5_SYNC_CUTOFF=new Date('2026-10-07T00:00:00').getTime(); // Oct 1–6 already came in via myfxbook
+let mt5Syncing=false;
+async function mt5ApplyTrades(trades,cutoff,save){
+  let created=0,updated=0,skipped=0;
+  for(const t of trades){
+    if(!t.pair||t.external_id==null||(t.entry_time==null&&t.exit_time==null)){skipped++;continue;}
+    if(t.result!=='Open'&&cutoff&&Number(t.exit_time||t.entry_time||0)<cutoff){skipped++;continue;}
+    if(t.result==='Open'&&cutoff&&Number(t.entry_time||0)<cutoff){skipped++;continue;}
+    const fillId='mt5:'+t.external_id;
+    const dk=dateKeyFromMs(t.exit_time||t.entry_time);
+    const existing=findExistingTradeByFillIds([fillId]);
+    if(existing){
+      const ex=existing.trade;
+      // Edited or combined trades are yours — never overwritten. Only
+      // untouched drafts refresh (e.g. an open position that has now closed).
+      if(!ex.is_draft){skipped++;continue;}
+      ex.pnl=t.pnl;ex.result=t.result;ex.fees=t.fees||0;
+      ex.size=t.size;ex.entry_price=t.entry_price;ex.exit_price=t.exit_price;
+      ex.direction=t.direction;ex.entry_time=t.entry_time;ex.exit_time=t.exit_time;
+      ex.notes=t.notes;ex.source='mt5';
+      let saveDk=existing.dk;
+      if(existing.dk!==dk){
+        data[existing.dk].trades.splice(existing.idx,1);
+        if(!data[existing.dk].trades.length)delete data[existing.dk];
+        if(!data[dk])data[dk]={trades:[]};
+        data[dk].trades.push(ex);
+        saveDk=dk;
+      }
+      await save(saveDk,ex);
+      updated++;
+    } else {
+      const trade={
+        id:mfxHashId(fillId),
+        pair:t.pair,timeframe:'',pnl:t.pnl,result:t.result,
+        bias:t.direction==='Long'?'Bullish':t.direction==='Short'?'Bearish':'',
+        setup:'',plan:'',notes:t.notes||'',tags:[],screenshots:[],youtube:'',
+        source:'mt5',fees:t.fees||0,hl_fill_ids:[fillId],is_draft:true,
+        size:t.size,entry_price:t.entry_price,exit_price:t.exit_price,
+        partial_exits:[],direction:t.direction,entry_time:t.entry_time,exit_time:t.exit_time
+      };
+      if(!data[dk])data[dk]={trades:[]};
+      data[dk].trades.push(trade);
+      await save(dk,trade);
+      created++;
+    }
+  }
+  return {created,updated,skipped};
+}
+async function syncMt5(){
+  if(mt5Syncing)return;
+  const btn=document.getElementById('mfx-sync-btn');
+  mt5Syncing=true;
+  if(btn)btn.disabled=true;
+  showSyncStatus('syncing','⟳ Pulling MT5…');
+  try{
+    const {data:resp,error}=await supabaseClient.functions.invoke('metaapi-sync',{body:{days:60}});
+    if(error){
+      let msg=error.message||String(error);
+      try{const b=await error.context.json();if(b&&b.error)msg=b.error;}catch(e){}
+      throw new Error(msg);
+    }
+    if(resp&&resp.error)throw new Error(resp.error);
+    const r=await mt5ApplyTrades((resp&&resp.trades)||[],MT5_SYNC_CUTOFF,cloudUpsertTrade);
+    myfxbookLastSync=Date.now();
+    safeSetItem('tj2_mfx_lastsync',String(myfxbookLastSync));
+    await cloudSaveSettings();
+    saveData();
+    renderCalendar();renderQuarterlyOverview();updateStats();renderMfxStatus();
+    if(activeDate&&document.getElementById('logged-trades')){try{renderDaySummary();renderLoggedTrades();}catch(e){}}
+    const parts=[];
+    if(r.created)parts.push(`${r.created} new`);
+    if(r.updated)parts.push(`${r.updated} updated`);
+    showSyncStatus('synced',parts.length?`✓ ${parts.join(', ')}`:'✓ Up to date');
+  }catch(err){
+    console.error('MT5 sync failed:',err);
+    showSyncStatus('error','⚠ MT5 sync failed');
+    alert('MT5 sync failed:\n\n'+(err&&err.message?err.message:err));
+  }
+  mt5Syncing=false;
+  if(btn)btn.disabled=false;
+}
 async function persistHlWallets(){
   safeSetItem('tj2_hl_wallets',JSON.stringify(hlWallets));
   await cloudSaveSettings();
