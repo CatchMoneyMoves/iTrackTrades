@@ -2847,7 +2847,7 @@ async function syncMyfxbook(){
 // ---- MT5 sync (via MetaApi) ------------------------------------------------
 // Every MT5 position has a real ticket number, so matching is exact: one
 // journal trade per ticket. Account + token live in Supabase secrets.
-const MT5_SYNC_CUTOFF=new Date('2026-10-07T00:00:00').getTime(); // Oct 1–6 already came in via myfxbook
+const MT5_SYNC_CUTOFF=Date.parse('2026-10-06T14:00:00Z'); // everything up to your last myfxbook trade (Oct 6, 8:57 AM) already came in via myfxbook
 let mt5Syncing=false;
 async function mt5ApplyTrades(trades,cutoff,save){
   let created=0,updated=0,skipped=0;
