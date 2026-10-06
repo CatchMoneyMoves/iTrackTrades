@@ -1820,7 +1820,7 @@ async function combineSelectedTrades(){
     direction:first('direction')||null,
     entry_time:times('entry_time').length?Math.min(...times('entry_time')):base.entry_time,
     exit_time:times('exit_time').length?Math.max(...times('exit_time')):base.exit_time,
-    is_draft:picked.some(t=>t.is_draft)
+    is_draft:false // combining is a deliberate manual action, same as editing — never overwrite it on later syncs
   });
   const removeIds=new Set(picked.slice(1).map(t=>String(t.id)));
   data[activeDate].trades=trades.filter(t=>!removeIds.has(String(t.id)));
