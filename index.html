@@ -880,7 +880,7 @@ async function cloudUpsertTrade(dk,trade){
     showSyncStatus('synced','✓ Saved');
   }catch(err){
     console.error('Save failed:',err);
-    showSyncStatus('error','⚠ Save failed');
+    showSyncStatus('error','⚠ Save failed: '+(err&&err.message?err.message:'unknown error'));
   }
 }
 
@@ -2683,7 +2683,11 @@ function mfxHashId(str){
   }
   h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);
   h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);
-  return 4294967296*(h2>>>0)+(h1>>>0);
+  // Old version combined to a full 64-bit number, which can exceed
+  // Number.MAX_SAFE_INTEGER (and overflow the DB id column) — that silently
+  // broke saving for some trades. Keep it within a safe ~52-bit range.
+  const hi=(h2>>>0)%1048576; // 20 bits
+  return hi*4294967296+(h1>>>0); // max ~4.5e15, always safe
 }
 async function syncMyfxbook(){
   if(!myfxbookAccountIds.length){
