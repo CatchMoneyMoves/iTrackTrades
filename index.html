@@ -116,6 +116,13 @@ a{color:#0077c0;text-decoration:none}
 .hstat{text-align:center}
 .hstat-val{font-size:0.95rem;font-weight:700}
 .hstat-lbl{font-size:0.58rem;color:#8493a1;text-transform:uppercase;letter-spacing:1px}
+.mt5-top-sync{background:#e0f2fe;border:1px solid #0369a1;color:#0369a1;border-radius:8px;padding:4px 12px;cursor:pointer;font-family:inherit;transition:all 0.15s}
+.mt5-top-sync .hstat-val{font-size:0.8rem;color:#0369a1}
+.mt5-top-sync:hover{background:#d0ecfc}
+.mt5-top-sync:disabled{opacity:0.5;cursor:wait}
+body.dark .mt5-top-sync{background:#0d1014;border-color:#2b9be0;color:#2b9be0}
+body.dark .mt5-top-sync .hstat-val{color:#2b9be0}
+body.dark .mt5-top-sync:hover{background:rgba(43,155,224,0.12)}
 .pnl-filter-wrap{position:relative;display:inline-block}
 .pnl-filter-btn{background:none;border:none;cursor:pointer;text-align:center;padding:0}
 .pnl-filter-btn:hover .hstat-val{opacity:0.8}
@@ -510,12 +517,6 @@ body.dark ::-webkit-scrollbar-thumb{background:#2c3a47}
     <button class="hl-sync-btn" id="hl-sync-btn" onclick="syncHyperliquid()"><span style="font-size:12px;flex-shrink:0">🔄</span> Sync now</button>
     <div class="hl-last-sync" id="hl-last-sync"></div>
     <hr class="sidebar-divider">
-    <div class="sidebar-section hl-section-header" style="display:flex;align-items:center;justify-content:space-between;user-select:none">
-      <span>MT5</span>
-    </div>
-    <button class="hl-sync-btn" id="mfx-sync-btn" onclick="syncMt5()"><span style="font-size:12px;flex-shrink:0">🔄</span> Sync now</button>
-    <div class="hl-last-sync" id="mfx-last-sync"></div>
-    <hr class="sidebar-divider">
     <div class="sidebar-section">Quick Links</div>
     <div id="quick-links-list"></div>
     <div class="quick-link-add" onclick="toggleAddLink()"><span style="font-size:12px;flex-shrink:0">+</span> Add link</div>
@@ -537,6 +538,7 @@ body.dark ::-webkit-scrollbar-thumb{background:#2c3a47}
   <div class="topbar">
     <div class="topbar-title" id="topbar-title">Calendar</div>
     <div class="header-stats">
+      <button class="hstat mt5-top-sync" id="mfx-sync-btn" onclick="syncMt5()" title="Sync trades from MT5"><div class="hstat-val">🔄 Sync</div><div class="hstat-lbl" id="mfx-last-sync">MT5</div></button>
       <div class="hstat"><div class="hstat-val purple" id="hs-trades">0</div><div class="hstat-lbl">Trades</div></div>
       <div class="hstat"><div class="hstat-val neutral" id="hs-wr">—</div><div class="hstat-lbl">Win Rate</div></div>
       <div class="hstat pnl-filter-wrap" id="pnl-filter-wrap">
@@ -2588,13 +2590,13 @@ function renderMfxStatus(){
     if(myfxbookLastSync){
       const diffMin=Math.round((Date.now()-myfxbookLastSync)/60000);
       let txt;
-      if(diffMin<1)txt='Last sync: just now';
-      else if(diffMin<60)txt=`Last sync: ${diffMin}m ago`;
-      else if(diffMin<1440)txt=`Last sync: ${Math.round(diffMin/60)}h ago`;
-      else txt=`Last sync: ${Math.round(diffMin/1440)}d ago`;
+      if(diffMin<1)txt='MT5 · just now';
+      else if(diffMin<60)txt=`MT5 · ${diffMin}m ago`;
+      else if(diffMin<1440)txt=`MT5 · ${Math.round(diffMin/60)}h ago`;
+      else txt=`MT5 · ${Math.round(diffMin/1440)}d ago`;
       lastEl.textContent=txt;
     } else {
-      lastEl.textContent='Never synced';
+      lastEl.textContent='MT5';
     }
   }
 }
