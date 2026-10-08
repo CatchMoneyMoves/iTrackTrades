@@ -556,7 +556,7 @@ body.dark ::-webkit-scrollbar-thumb{background:#2c3a47}
           <div class="pnl-filter-option" onclick="setPnlFilter('all',this)">Total P&L</div>
         </div>
       </div>
-      <div class="hstat" onclick="editStartingBalance()" style="cursor:pointer" title="Click to anchor HL Balance to your current actual amount"><div class="hstat-val" id="hs-balance">$0</div><div class="hstat-lbl">HL Balance</div></div>
+      <div class="hstat" onclick="balanceClick()" style="cursor:pointer" title="Your MT5 account balance — updates every sync"><div class="hstat-val" id="hs-balance">$0</div><div class="hstat-lbl">Balance</div></div>
       <button class="privacy-toggle" id="privacy-toggle" onclick="togglePrivacy()" title="Toggle $ / % mode (Ctrl+H)">$</button>
     </div>
   </div>
@@ -707,6 +707,8 @@ let activePairFilter=null;
 let cmbMode=false;
 const cmbSel=new Set();
 let startingBalance=0;
+// Real MT5 account balance from the last sync (null until the first MT5 sync).
+let mt5Account=(()=>{try{const v=JSON.parse(localStorage.getItem('tj2_mt5_account')||'null');return v&&isFinite(v.balance)?v:null;}catch(e){return null;}})();
 let hlWallets=[]; // array of wallet address strings — synced together, merged into one calendar
 let hlLastSync=0;
 let myfxbookAccountIds=[]; // array of myfxbook account ID strings — synced together, merged into one calendar
@@ -2488,7 +2490,21 @@ function updateStats(){
   if(pnlLbl)pnlLbl.textContent=getPnlLabel();
   const hlBalance=startingBalance+hlPnl;
   const balEl=document.getElementById('hs-balance');
-  if(balEl){
+  if(balEl&&mt5Account){
+    const b=Number(mt5Account.balance);
+    if(privacyMode){
+      balEl.textContent='••••';
+      balEl.style.color=isDark?'#a3a3a3':'#3a4756';
+    } else {
+      balEl.textContent=(b<0?'-$':'$')+Math.abs(b).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+      balEl.style.color=b>=0?(isDark?'#4ade80':'#047857'):(isDark?'#f87171':'#b91c1c');
+    }
+    const parentEl=balEl.closest('.hstat');
+    if(parentEl){
+      const when=mt5Account.at?new Date(mt5Account.at).toLocaleString():'';
+      parentEl.title=`MT5 balance: $${b.toFixed(2)}`+(isFinite(mt5Account.equity)?`  •  Equity: $${Number(mt5Account.equity).toFixed(2)}`:'')+(when?`\nAs of last sync: ${when}`:'')+`\n\nClick to sync now.`;
+    }
+  } else if(balEl){
     if(privacyMode){
       balEl.textContent='••••';
       balEl.style.color=isDark?'#a3a3a3':'#3a4756';
@@ -2510,6 +2526,9 @@ function updateStats(){
   }
 }
 
+function balanceClick(){
+  if(mt5Account)syncMt5();else editStartingBalance();
+}
 async function editStartingBalance(){
   const all=Object.values(data).flatMap(d=>d.trades||[]);
   const hlPnl=all.filter(t=>t.source==='hyperliquid').reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
@@ -2980,6 +2999,10 @@ async function syncMt5(){
     }
     if(resp&&resp.error)throw new Error(resp.error);
     const r=await mt5ApplyTrades((resp&&resp.trades)||[],MT5_SYNC_CUTOFF,cloudUpsertTrade);
+    if(resp&&resp.accountInfo&&isFinite(resp.accountInfo.balance)){
+      mt5Account={balance:Number(resp.accountInfo.balance),equity:Number(resp.accountInfo.equity),currency:resp.accountInfo.currency||'USD',at:Date.now()};
+      safeSetItem('tj2_mt5_account',JSON.stringify(mt5Account));
+    }
     myfxbookLastSync=Date.now();
     safeSetItem('tj2_mfx_lastsync',String(myfxbookLastSync));
     await cloudSaveSettings();
