@@ -618,6 +618,37 @@ body.dark #page-settings button[style*="background:#0b0f14"]{background:#0077c0 
 body.dark #page-settings .ql-item:hover,body.dark #page-settings .hl-wallet-row:hover{background:#14181d}
 body.dark .qd-select-bar{background:#0d1014;border-color:#1e2730}
 body.dark .qd-select-count{color:#a9bfd0}
+
+/* Logo in place of the name */
+.brand{display:inline-flex;align-items:center;cursor:pointer;border-radius:9px;line-height:0}
+.brand:focus-visible{outline:2px solid #0077c0;outline-offset:3px}
+.topbar-left{align-items:center}
+/* Desktop: main buttons in the top bar, quick links in the bottom bar */
+@media (min-width:769px){
+  .topbar-title{display:none}
+  .topbar .dock{position:static;transform:none;box-shadow:none;margin:0 auto 0 18px;padding:4px;flex-shrink:0}
+  .topbar .dock .dock-item,.topbar .dock .dock-sync{height:36px;font-size:0.85rem}
+  .topbar .dock .dock-item{padding:0 14px}
+  .topbar .dock .dock-sync{padding:0 16px}
+  .linkbar{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:200;display:flex;align-items:center;background:#0b2a40;padding:6px;border-radius:999px;box-shadow:0 10px 30px rgba(11,42,64,0.22);max-width:calc(100vw - 40px)}
+  .linkbar .top-links{margin:0;flex:0 1 auto;gap:4px}
+  .linkbar .tl-wrap,.linkbar .top-link{background:transparent;height:40px}
+  .linkbar .top-link{color:#d6e3ee;padding:0 16px;font-size:0.9rem}
+  .linkbar .tl-wrap:hover,.linkbar a.top-link:hover{background:rgba(255,255,255,0.10)}
+  .linkbar .tl-wrap:hover .top-link,.linkbar .top-link:hover{color:#ffffff}
+  .linkbar .tl-edit{color:#d6e3ee}
+  .linkbar .tl-add{height:40px;min-width:40px;border-color:#4a6f8a;color:#d6e3ee}
+  .linkbar .tl-add:hover{border-color:#7ee2b4;color:#7ee2b4}
+  .linkbar .top-link:focus-visible,.linkbar .tl-add:focus-visible{outline:2px solid #7ee2b4;outline-offset:2px}
+  body.dark .linkbar{border:1px solid #1e2730}
+  body.dark .linkbar .tl-wrap,body.dark .linkbar .top-link{background:transparent;color:#d6e3ee}
+  body.dark .linkbar .tl-wrap:hover{background:rgba(255,255,255,0.10)}
+}
+@media (min-width:769px) and (max-width:1180px){
+  .topbar .dock .dock-item:not(.active) span{display:none}
+  .topbar .dock .dock-sync small{display:none}
+  .topbar .dock .dock-item{padding:0 11px}
+}
 </style>
 </head>
 <body>
@@ -647,7 +678,7 @@ body.dark .qd-select-count{color:#a9bfd0}
 <div class="main">
 
   <div class="topbar">
-    <div class="topbar-left"><span class="brand">Journal</span><span class="topbar-title" id="topbar-title">Calendar</span></div>
+    <div class="topbar-left"><span class="brand" role="button" tabindex="0" title="Calendar" aria-label="Journal, go to Calendar" onclick="showPage('calendar',document.getElementById('nav-calendar'))" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.click()}"><svg class="brand-logo" viewBox="0 0 32 32" width="30" height="30" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#0077c0"/><path d="M7.5 21l5.5-6.5 4 4 7.5-9.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="topbar-title" id="topbar-title">Calendar</span></div>
     <nav class="top-links" id="top-links" aria-label="Quick links"></nav>
     <div class="header-stats">
       <div class="hstat"><div class="hstat-val purple" id="hs-trades">0</div><div class="hstat-lbl">Trades</div></div>
@@ -740,7 +771,7 @@ body.dark .qd-select-count{color:#a9bfd0}
 
       <div style="background:#fff;border:1px solid #dde5ec;border-radius:14px;padding:20px;margin-bottom:16px">
         <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;color:#0077c0;font-weight:600;margin-bottom:6px">Quick links</div>
-        <div style="font-size:0.82rem;color:#5b6b7a;margin-bottom:10px;line-height:1.5">They show in the top bar so you can open them in one click. <span id="ql-count"></span></div>
+        <div style="font-size:0.82rem;color:#5b6b7a;margin-bottom:10px;line-height:1.5">They show as shortcut buttons so you can open them in one click. <span id="ql-count"></span></div>
         <div id="quick-links-list"></div>
         <div class="quick-link-add" id="ql-add-row" onclick="toggleAddLink()"><span style="font-size:12px;flex-shrink:0">+</span> Add link</div>
         <div id="add-link-row" style="display:none">
@@ -3815,6 +3846,29 @@ async function checkAuth(){
   }
 }
 checkAuth();
+</script>
+<script>
+/* Desktop: main buttons sit in the top bar and quick links in the bottom bar. Phones keep the bottom tab bar. */
+(function(){
+  var mq=window.matchMedia('(min-width:769px)');
+  function place(){
+    var dock=document.querySelector('.dock'),links=document.getElementById('top-links'),bar=document.querySelector('.topbar'),left=document.querySelector('.topbar-left'),main=document.querySelector('.main');
+    if(!dock||!links||!bar||!left||!main)return;
+    var lb=document.getElementById('linkbar');
+    if(mq.matches){
+      if(!lb){lb=document.createElement('div');lb.id='linkbar';lb.className='linkbar';main.parentNode.appendChild(lb);}
+      if(dock.parentNode!==bar)left.after(dock);
+      if(links.parentNode!==lb)lb.appendChild(links);
+      dock.classList.remove('collapsed');
+    }else{
+      if(dock.parentNode===bar)main.parentNode.insertBefore(dock,main);
+      if(links.parentNode!==bar)left.after(links);
+      if(lb)lb.remove();
+    }
+  }
+  place();
+  if(mq.addEventListener)mq.addEventListener('change',place);else mq.addListener(place);
+})();
 </script>
 </body>
 </html>
