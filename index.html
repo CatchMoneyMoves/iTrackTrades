@@ -247,7 +247,24 @@ body.dark .ps-tab.on{background:#0d1014 !important;color:#2b9be0 !important;box-
 body.dark .ps-mtitle,body.dark .mb-lbl{color:#8a98a6}
 body.dark .mb-pos{border-color:#2c3a47}
 body.dark .mb.sel{background:rgba(43,155,224,0.18)}
-@media(max-width:768px){.ps-month{grid-template-columns:1fr}.ps-pane{padding:12px}}
+@media(max-width:768px){.ps-month{grid-template-columns:minmax(0,1fr)}.ps-month>div{min-width:0}.ps-pane{padding:12px}}
+.chart-expand,.ps-xbtn{display:inline-flex;align-items:center;justify-content:center}
+.chart-expand{width:34px;height:34px;padding:0}
+.chart-expand svg,.ps-xbtn svg{width:16px;height:16px;display:block}
+.ps-xbtn{width:34px;height:34px;padding:0;border:1px solid #c4ced4;background:#f4f7fa;color:#0077c0;border-radius:8px;cursor:pointer;flex:none}
+.ps-xbtn:hover{border-color:#0077c0}
+body.dark .ps-xbtn{background:#0a0c0f !important;border-color:#2c3a47 !important;color:#2b9be0 !important}
+.ps-hrow{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.ps-hrow .ps-h{margin:0}
+.ps-tabbar .ps-xbtn{margin:0 0 6px 6px}
+@media(min-width:769px){.ps-xbtn{display:none}}
+@media(max-width:768px){
+.ps-sec.ps-full{position:fixed;inset:0;z-index:450;margin:0;border-radius:0;border:0;overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:calc(env(safe-area-inset-top,0px) + 12px) 14px 28px}
+.ps-sec.ps-tabs.ps-full{padding:0 0 28px}
+.ps-full .ps-tabbar{position:sticky;top:0;z-index:2;background:#ffffff;padding-top:calc(env(safe-area-inset-top,0px) + 10px)}
+body.dark .ps-full .ps-tabbar{background:#0d1014 !important}
+.ps-full .ps-hrow{margin-bottom:10px}
+}
 .ps-sec{background:#ffffff;border:1px solid #dde5ec;border-radius:12px;padding:14px 16px;margin-top:12px}
 .ps-h{font-size:0.78rem;font-weight:600;color:#3a4756;margin-bottom:8px}
 .ps-per{width:100%;border-collapse:collapse;font-size:0.78rem}
@@ -806,7 +823,7 @@ body.dark .qd-select-count{color:#a9bfd0}
     <div class="q-bottom">
       <div class="chart-section">
         <div class="chart-title">Running P&L — All Trades</div>
-        <button type="button" class="chart-expand" id="chart-expand" onclick="togglePnlChart()">Expand</button>
+        <button type="button" class="chart-expand" id="chart-expand" onclick="togglePnlChart()" title="Expand" aria-label="Expand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
         <div class="chart-wrap"><canvas id="pnl-chart"></canvas></div>
       </div>
       <div id="perf-stats"></div>
@@ -1995,17 +2012,22 @@ function psPairsHtml(trades){
   return `<div class="ps-scroll"><table class="ps-pairs"><thead><tr><th></th><th class="grp" colspan="2">Longs</th><th class="grp" colspan="2">Shorts</th><th class="grp" colspan="2">Total</th><th></th><th></th></tr><tr><th>Pair</th><th>Trades</th><th>Profit ($)</th><th>Trades</th><th>Profit ($)</th><th>Trades</th><th>Profit ($)</th><th>Won (%)</th><th>Lost (%)</th></tr></thead><tbody>${rows}${tot}</tbody></table></div>`;
 }
 const PS_MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-let psTab='pair',psMonth=null;
+const XI_EXP='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>';
+const XI_COL='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>';
+let psTab='pair',psMonth=null,psFull=null;
+function psXbtn(w){const on=psFull===w;return `<button type="button" class="ps-xbtn" onclick="psToggleFull('${w}')" title="${on?'Collapse':'Expand'}" aria-label="${on?'Collapse':'Expand'}">${on?XI_COL:XI_EXP}</button>`;}
+function psToggleFull(w){psFull=(psFull===w?null:w);renderPerfStats();const f=document.querySelector('#perf-stats .ps-full');if(f)f.scrollTop=0;}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&psFull){psFull=null;renderPerfStats();}});
 function psSetTab(t){psTab=t;renderPerfStats();}
 function psPickMonth(i){psMonth=(psMonth===i?null:i);renderPerfStats();}
-function psMonthlyHtml(yr){
+function psMonthlyHtml(yr,big){
   const by=Array.from({length:12},()=>[]);
   yr.forEach(t=>{const i=parseInt(t.date.slice(5,7),10)-1;if(i>=0&&i<12)by[i].push(t);});
   const mons=[];
   by.forEach((ts,i)=>{if(ts.length){mons.push({i,s:psCompute(ts)});}});
   if(!mons.length)return '<div class="ps-empty">No trades in '+qYear+'.</div>';
   const P=Math.max(0,...mons.map(m=>m.s.net)),N=Math.max(0,...mons.map(m=>-m.s.net));
-  const range=(P+N)||1,H=150,k=H/range;
+  const range=(P+N)||1,H=big?250:150,k=H/range;
   const cols=mons.map(m=>{
     const v=m.s.net,h=Math.max(2,Math.abs(v)*k),sel=psMonth===m.i?' sel':'';
     const lab=`<span class="mv ${psCls(v)}">${v<0?'-':''}$${Math.abs(v).toFixed(0)}</span>`;
@@ -2072,20 +2094,20 @@ function renderPerfStats(){
   if(psTab==='adv')body=yr.length?psAdvancedHtml(psCompute(yr)):'<div class="ps-empty">No trades in '+qYear+'.</div>';
   else if(psTab==='per')body=psPeriodsHtml(all);
   else body=psPairsHtml(yr);
-  el.innerHTML=`<div class="ps-sec ps-tabs"><div class="ps-tabbar" role="tablist">`+
+  el.innerHTML=`<div class="ps-sec ps-tabs${psFull==='stats'?' ps-full':''}"><div class="ps-tabbar" role="tablist">`+
     tabs.map(t=>`<button type="button" role="tab" class="ps-tab${psTab===t[0]?' on':''}" aria-selected="${psTab===t[0]}" onclick="psSetTab('${t[0]}')">${t[1]}</button>`).join('')+
-    `<span class="ps-year">${qYear}</span></div><div class="ps-pane">${body}</div></div>`+
-    `<div class="ps-sec"><div class="ps-h">Monthly — ${qYear}</div>${psMonthlyHtml(yr)}</div>`;
+    `<span class="ps-year">${qYear}</span>${psXbtn('stats')}</div><div class="ps-pane">${body}</div></div>`+
+    `<div class="ps-sec${psFull==='month'?' ps-full':''}"><div class="ps-hrow"><div class="ps-h">Monthly — ${qYear}</div>${psXbtn('month')}</div>${psMonthlyHtml(yr,psFull==='month')}</div>`;
 }
 
 function togglePnlChart(){
   const sec=document.querySelector('#page-quarterly .chart-section');if(!sec)return;
   const on=sec.classList.toggle('expanded');
-  const b=document.getElementById('chart-expand');if(b)b.textContent=on?'Collapse':'Expand';
+  const b=document.getElementById('chart-expand');if(b){b.innerHTML=on?XI_COL:XI_EXP;b.title=on?'Collapse':'Expand';b.setAttribute('aria-label',b.title);}
   try{localStorage.setItem('tj_chart_expanded',on?'1':'0');}catch(e){}
   setTimeout(()=>{try{if(pnlChart)pnlChart.resize();}catch(e){}},30);
 }
-(function(){try{if(localStorage.getItem('tj_chart_expanded')==='1'){const sec=document.querySelector('#page-quarterly .chart-section');const b=document.getElementById('chart-expand');if(sec)sec.classList.add('expanded');if(b)b.textContent='Collapse';}}catch(e){}})();
+(function(){try{if(localStorage.getItem('tj_chart_expanded')==='1'){const sec=document.querySelector('#page-quarterly .chart-section');const b=document.getElementById('chart-expand');if(sec)sec.classList.add('expanded');if(b){b.innerHTML=XI_COL;b.title='Collapse';b.setAttribute('aria-label','Collapse');}}}catch(e){}})();
 function renderPnlChart(){
   const canvas=document.getElementById('pnl-chart');if(!canvas)return;
   const all=[];
