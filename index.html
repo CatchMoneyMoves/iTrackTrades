@@ -229,6 +229,7 @@ body.dark .ps-pairs td.pl{background:rgba(248,113,113,0.14)}
 .ps-pane{padding:14px 16px}
 .ps-empty{text-align:center;color:#8493a1;font-size:0.8rem;padding:20px}
 .ps-month{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:24px}
+.ps-mdet.empty{display:flex;align-items:center;justify-content:center;min-height:170px}
 .ps-mtitle{font-size:0.74rem;font-weight:600;color:#3a4756;text-align:center;margin-bottom:8px}
 .ps-mchart{display:flex;align-items:stretch;gap:6px;overflow-x:auto;padding-bottom:4px}
 .mb{flex:1;min-width:34px;display:flex;flex-direction:column;align-items:stretch;border:0;background:transparent;cursor:pointer;padding:0 2px;border-radius:6px;font-family:inherit}
@@ -2012,7 +2013,7 @@ function psMonthlyHtml(yr){
     const neg=N>0?`<div class="mb-neg" style="height:${N*k+18}px">${v<0?`<i class="dn" style="height:${h}px"></i>`+lab:''}</div>`:'';
     return `<button type="button" class="mb${sel}" onclick="psPickMonth(${m.i})" aria-label="${PS_MON[m.i]} ${qYear}">${pos}${neg}<div class="mb-lbl">${PS_MON[m.i]}</div></button>`;
   }).join('');
-  let det='<div class="ps-empty" style="padding:30px 10px">Select a month.</div>';
+  let det='<div class="ps-empty" style="padding:0">Select a month.</div>';
   const sel=mons.find(m=>m.i===psMonth);
   if(sel){
     const x=sel.s,row=(l,v)=>`<div class="ps-row"><span>${l}</span><span>${v}</span></div>`,sc=x.W+x.L;
@@ -2027,7 +2028,7 @@ function psMonthlyHtml(yr){
       row('Worst trade',x.worst?`<span class="${psCls(x.worst.v)}">${psSigned(x.worst.v)}</span>`:'—')+
       row('Profit factor',x.pfInf?'∞':(x.pf===null?'—':x.pf.toFixed(2)));
   }
-  return `<div class="ps-month"><div><div class="ps-mtitle">Monthly P&amp;L ($)</div><div class="ps-mchart">${cols}</div></div><div class="ps-mdet">${det}</div></div>`;
+  return `<div class="ps-month"><div><div class="ps-mtitle">Monthly P&amp;L ($)</div><div class="ps-mchart">${cols}</div></div><div class="ps-mdet${sel?'':' empty'}">${det}</div></div>`;
 }
 function psAdvancedHtml(s){
   const row=(l,v)=>`<div class="ps-row"><span>${l}</span><span>${v}</span></div>`;
