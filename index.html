@@ -1996,7 +1996,6 @@ function renderPerfStats(){
     row('Expectancy per trade',s.n?`<span class="${psCls(s.mean)}">${psSigned(s.mean)}</span>`:'—')+
     row('Standard deviation',s.sd===null?'—':psMoney(s.sd))+
     row('Sharpe ratio (per trade)',s.sharpe===null?'—':s.sharpe.toFixed(2))+
-    row('Z-score (probability)',s.z===null?'—':`${s.z.toFixed(2)} <small>(${s.conf.toFixed(2)}%)</small>`)+
     row('Max drawdown',s.dd?`<span class="red">-${psMoney(s.dd).replace('-','')}</span>`:'—')+
     row('Longest win / loss streak',`${s.mw} / ${s.ml}`)+
     (s.avgDur!==null?row('Avg. trade length',psDur(s.avgDur)):'');
@@ -2005,7 +2004,7 @@ function renderPerfStats(){
     per.map(p=>`<tr><td>${p.label}</td><td class="${psCls(p.net)}">${p.n?psSigned(p.net):'—'}</td><td>${p.wr===null?'—':p.wr+'%'}</td><td>${p.n}</td></tr>`).join('')+
     `</tbody></table></div>`+
     `<div class="ps-sec"><div class="ps-h">Advanced statistics — ${qYear}</div><div class="ps-grid"><div>${left}</div><div>${right}</div></div>`+
-    `<div class="ps-note">Trades within $10 of zero count as breakeven. Sharpe and standard deviation use per-trade P&amp;L. Z-score is a runs test on your win/loss order.</div></div>`+psPairsHtml(yr);
+    `<div class="ps-note">Trades within $10 of zero count as breakeven. Sharpe and standard deviation use per-trade P&amp;L.</div></div>`+psPairsHtml(yr);
 }
 
 
