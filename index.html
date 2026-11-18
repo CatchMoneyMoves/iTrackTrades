@@ -205,6 +205,20 @@ body.privacy .tc-prices::after{content:'••••';visibility:visible;positio
 .chart-section.expanded .chart-wrap{height:480px}
 body.dark .chart-expand{background:#0a0c0f !important;border-color:#2c3a47 !important;color:#2b9be0 !important}
 @media(max-width:768px){.chart-section.expanded .chart-wrap,#page-quarterly .chart-section.expanded .chart-wrap{height:360px}}
+
+.ps-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.ps-pairs{width:100%;border-collapse:collapse;font-size:0.78rem;min-width:560px}
+.ps-pairs th{color:#5b6b7a;font-weight:500;text-align:right;padding:6px 8px;border-bottom:1px solid #dde5ec;white-space:nowrap}
+.ps-pairs td{text-align:right;padding:9px 8px;border-bottom:1px solid #eef2f6;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ps-pairs th:first-child,.ps-pairs td:first-child{text-align:left;font-weight:700}
+.ps-pairs .grp{text-align:center;border-bottom:0;color:#3a4756;font-weight:600}
+.ps-pairs td.pw{background:rgba(52,195,143,0.16)}
+.ps-pairs td.pl{background:rgba(244,106,106,0.16)}
+.ps-pairs tr.tot td{font-weight:700;border-top:2px solid #dde5ec}
+body.dark .ps-pairs th,body.dark .ps-pairs td{border-color:#1e2730 !important}
+body.dark .ps-pairs th,body.dark .ps-pairs .grp{color:#8a98a6}
+body.dark .ps-pairs td.pw{background:rgba(74,222,128,0.14)}
+body.dark .ps-pairs td.pl{background:rgba(248,113,113,0.14)}
 .ps-sec{background:#ffffff;border:1px solid #dde5ec;border-radius:12px;padding:14px 16px;margin-top:12px}
 .ps-h{font-size:0.78rem;font-weight:600;color:#3a4756;margin-bottom:8px}
 .ps-per{width:100%;border-collapse:collapse;font-size:0.78rem}
@@ -1931,6 +1945,26 @@ function psPeriods(all){
     mk('This year',t=>t.date.slice(0,4)===today.slice(0,4))
   ];
 }
+
+function psPairsHtml(trades){
+  const BE=10,g={};
+  const dirOf=t=>{const d=String(t.direction||'').toLowerCase();return (d==='long'||d==='buy')?'L':(d==='short'||d==='sell')?'S':null;};
+  trades.forEach(t=>{
+    const k=String(t.pair||'').trim()||'—';
+    const o=g[k]||(g[k]={n:0,W:0,L:0,ln:0,lp:0,sn:0,sp:0,tp:0});
+    const p=parseFloat(t.pnl)||0,d=dirOf(t);
+    o.n++;o.tp+=p;if(p>BE)o.W++;else if(p<-BE)o.L++;
+    if(d==='L'){o.ln++;o.lp+=p;}else if(d==='S'){o.sn++;o.sp+=p;}
+  });
+  const keys=Object.keys(g).sort((a,b)=>g[b].n-g[a].n||a.localeCompare(b));
+  if(!keys.length)return '';
+  const pc=(c,o)=>{const sc=o.W+o.L;return sc?`${c} (${Math.round(c/sc*100)}%)`:`${c} (—)`;};
+  const m=v=>`<span class="${psCls(v)}">${(v<0?'-':'')+Math.abs(v).toFixed(2)}</span>`;
+  const rows=keys.map(k=>{const o=g[k];return `<tr><td>${k}</td><td>${o.ln}</td><td>${m(o.lp)}</td><td>${o.sn}</td><td>${m(o.sp)}</td><td>${o.n}</td><td>${m(o.tp)}</td><td class="pw">${pc(o.W,o)}</td><td class="pl">${pc(o.L,o)}</td></tr>`;}).join('');
+  const T=keys.reduce((a,k)=>{const o=g[k];['n','W','L','ln','lp','sn','sp','tp'].forEach(x=>a[x]+=o[x]);return a;},{n:0,W:0,L:0,ln:0,lp:0,sn:0,sp:0,tp:0});
+  const tot=`<tr class="tot"><td>All</td><td>${T.ln}</td><td>${m(T.lp)}</td><td>${T.sn}</td><td>${m(T.sp)}</td><td>${T.n}</td><td>${m(T.tp)}</td><td class="pw">${pc(T.W,T)}</td><td class="pl">${pc(T.L,T)}</td></tr>`;
+  return `<div class="ps-sec"><div class="ps-h">Summary by pair — ${qYear}</div><div class="ps-scroll"><table class="ps-pairs"><thead><tr><th></th><th class="grp" colspan="2">Longs</th><th class="grp" colspan="2">Shorts</th><th class="grp" colspan="2">Total</th><th></th><th></th></tr><tr><th>Pair</th><th>Trades</th><th>Profit ($)</th><th>Trades</th><th>Profit ($)</th><th>Trades</th><th>Profit ($)</th><th>Won (%)</th><th>Lost (%)</th></tr></thead><tbody>${rows}${tot}</tbody></table></div></div>`;
+}
 function renderPerfStats(){
   const el=document.getElementById('perf-stats');if(!el)return;
   const all=psCollectTrades();
@@ -1971,7 +2005,7 @@ function renderPerfStats(){
     per.map(p=>`<tr><td>${p.label}</td><td class="${psCls(p.net)}">${p.n?psSigned(p.net):'—'}</td><td>${p.wr===null?'—':p.wr+'%'}</td><td>${p.n}</td></tr>`).join('')+
     `</tbody></table></div>`+
     `<div class="ps-sec"><div class="ps-h">Advanced statistics — ${qYear}</div><div class="ps-grid"><div>${left}</div><div>${right}</div></div>`+
-    `<div class="ps-note">Trades within $10 of zero count as breakeven. Sharpe and standard deviation use per-trade P&amp;L. Z-score is a runs test on your win/loss order.</div></div>`;
+    `<div class="ps-note">Trades within $10 of zero count as breakeven. Sharpe and standard deviation use per-trade P&amp;L. Z-score is a runs test on your win/loss order.</div></div>`+psPairsHtml(yr);
 }
 
 
