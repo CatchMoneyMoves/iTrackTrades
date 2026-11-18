@@ -195,6 +195,36 @@ body.privacy .tc-prices::after{content:'••••';visibility:visible;positio
 .chart-title{font-size:0.78rem;font-weight:600;color:#3a4756;margin-bottom:10px;flex-shrink:0}
 .chart-wrap{flex:1;position:relative;min-height:0}
 .chart-wrap canvas{width:100%!important;height:100%!important}
+.q-bottom{overflow-y:auto}
+.chart-section{flex:none}
+.chart-wrap{flex:none;height:230px}
+
+.chart-section{position:relative}
+.chart-expand{position:absolute;top:12px;right:14px;border:1px solid #c4ced4;background:#f4f7fa;color:#0077c0;border-radius:7px;padding:4px 10px;font-size:0.72rem;font-weight:600;cursor:pointer;font-family:inherit}
+.chart-expand:hover{border-color:#0077c0}
+.chart-section.expanded .chart-wrap{height:480px}
+body.dark .chart-expand{background:#0a0c0f !important;border-color:#2c3a47 !important;color:#2b9be0 !important}
+@media(max-width:768px){.chart-section.expanded .chart-wrap,#page-quarterly .chart-section.expanded .chart-wrap{height:360px}}
+.ps-sec{background:#ffffff;border:1px solid #dde5ec;border-radius:12px;padding:14px 16px;margin-top:12px}
+.ps-h{font-size:0.78rem;font-weight:600;color:#3a4756;margin-bottom:8px}
+.ps-per{width:100%;border-collapse:collapse;font-size:0.78rem}
+.ps-per th{color:#5b6b7a;font-weight:500;text-align:right;padding:6px 4px;border-bottom:1px solid #dde5ec}
+.ps-per td{text-align:right;padding:8px 4px;border-bottom:1px solid #eef2f6;font-variant-numeric:tabular-nums}
+.ps-per th:first-child,.ps-per td:first-child{text-align:left;font-weight:600}
+.ps-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));column-gap:32px}
+.ps-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #eef2f6;font-size:0.78rem}
+.ps-row>span:first-child{color:#5b6b7a}
+.ps-row>span:last-child{font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+.ps-row small{color:#8493a1;font-weight:500;margin-right:4px}
+.ps-bar{display:inline-flex;height:10px;width:130px;border-radius:5px;overflow:hidden;vertical-align:middle}
+.ps-bar i{display:block;height:100%}
+.ps-note{font-size:0.66rem;color:#8493a1;margin-top:10px}
+body.dark .ps-sec{background:#0d1014 !important;border-color:#1e2730 !important}
+body.dark .ps-h{color:#a3a3a3}
+body.dark .ps-per th,body.dark .ps-per td,body.dark .ps-row{border-color:#1e2730 !important}
+body.dark .ps-row>span:first-child,body.dark .ps-per th{color:#8a98a6}
+@media(max-width:768px){.chart-wrap,#page-quarterly .chart-wrap{height:170px}.ps-grid{grid-template-columns:1fr}.ps-bar{width:90px}}
+
 .qd-header{background:#ffffff;border-bottom:1px solid #dde5ec;padding:12px 20px;display:flex;align-items:center;gap:14px;flex-shrink:0}
 .qd-title{font-size:1rem;font-weight:700;color:#0077c0}
 .qd-pnl{font-size:1rem;font-weight:700;margin-left:auto}
@@ -733,8 +763,10 @@ body.dark .qd-select-count{color:#a9bfd0}
     <div class="q-bottom">
       <div class="chart-section">
         <div class="chart-title">Running P&L — All Trades</div>
+        <button type="button" class="chart-expand" id="chart-expand" onclick="togglePnlChart()">Expand</button>
         <div class="chart-wrap"><canvas id="pnl-chart"></canvas></div>
       </div>
+      <div id="perf-stats"></div>
     </div>
   </div>
 
@@ -1821,6 +1853,136 @@ function makeChart(canvas,labels,values){
   });
 }
 
+
+// ---- Performance statistics (Myfxbook style) ----
+function psCollectTrades(){
+  const out=[];
+  Object.keys(data).forEach(dk=>{visibleTrades(dk).forEach((t,i)=>out.push(Object.assign({},t,{date:dk,_i:i})));});
+  out.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:((Number(a.entry_time)||0)-(Number(b.entry_time)||0))||(a._i-b._i));
+  return out;
+}
+function psNormCdf(z){
+  const t=1/(1+0.2316419*Math.abs(z)),d=0.3989423*Math.exp(-z*z/2);
+  const p=d*t*(0.3193815+t*(-0.3565638+t*(1.781478+t*(-1.821256+t*1.330274))));
+  return z>0?1-p:p;
+}
+function psMoney(v){return (v<0?'-$':'$')+Math.abs(v).toFixed(2);}
+function psSigned(v){return (v<0?'-$':'+$')+Math.abs(v).toFixed(2);}
+function psCls(v){return v>0?'green':v<0?'red':'';}
+function psDur(ms){
+  const m=Math.round(ms/60000);
+  if(m<60)return m+'m';
+  const h=Math.floor(m/60);
+  if(h<48)return h+'h '+(m%60)+'m';
+  return Math.floor(h/24)+'d '+(h%24)+'h';
+}
+function psCompute(trades){
+  const n=trades.length;
+  const pn=trades.map(t=>parseFloat(t.pnl)||0);
+  const BE=10;
+  const winsI=[],lossI=[];
+  pn.forEach((v,i)=>{if(v>BE)winsI.push(i);else if(v<-BE)lossI.push(i);});
+  const W=winsI.length,L=lossI.length,B=n-W-L;
+  const net=pn.reduce((a,b)=>a+b,0);
+  const gw=pn.filter(v=>v>0).reduce((a,b)=>a+b,0);
+  const gl=Math.abs(pn.filter(v=>v<0).reduce((a,b)=>a+b,0));
+  const avgW=W?winsI.reduce((s,i)=>s+pn[i],0)/W:null;
+  const avgL=L?lossI.reduce((s,i)=>s+pn[i],0)/L:null;
+  const mean=n?net/n:0;
+  const sd=n>1?Math.sqrt(pn.reduce((s,v)=>s+(v-mean)*(v-mean),0)/(n-1)):null;
+  let best=null,worst=null;
+  trades.forEach((t,i)=>{if(!best||pn[i]>best.v)best={v:pn[i],d:t.date};if(!worst||pn[i]<worst.v)worst={v:pn[i],d:t.date};});
+  const dirOf=t=>{const d=String(t.direction||'').toLowerCase();return (d==='long'||d==='buy')?'L':(d==='short'||d==='sell')?'S':null;};
+  const side={L:{w:0,n:0},S:{w:0,n:0}};
+  trades.forEach((t,i)=>{const d=dirOf(t);if(!d||Math.abs(pn[i])<=BE)return;side[d].n++;if(pn[i]>BE)side[d].w++;});
+  // running P&L: max drawdown, streaks
+  let run=0,peak=0,dd=0,sw=0,sl=0,mw=0,ml=0;
+  const seq=[];
+  pn.forEach(v=>{
+    run+=v;if(run>peak)peak=run;if(peak-run>dd)dd=peak-run;
+    if(v>BE){sw++;sl=0;seq.push(1);}else if(v<-BE){sl++;sw=0;seq.push(0);}else{sw=0;sl=0;}
+    if(sw>mw)mw=sw;if(sl>ml)ml=sl;
+  });
+  // Z-score (runs test) on win/loss sequence
+  let z=null,conf=null;
+  const N=seq.length;
+  if(W>0&&L>0&&N>2){
+    let R=1;for(let i=1;i<N;i++)if(seq[i]!==seq[i-1])R++;
+    const X=2*W*L,den=Math.sqrt((X*(X-N))/(N-1));
+    if(isFinite(den)&&den>0){z=(N*(R-0.5)-X)/den;conf=(2*psNormCdf(Math.abs(z))-1)*100;}
+  }
+  const fees=trades.reduce((s,t)=>s+(parseFloat(t.fees)||0),0);
+  let durSum=0,durN=0;
+  trades.forEach(t=>{const a=Number(t.entry_time),b=Number(t.exit_time);if(a&&b&&b>=a){durSum+=b-a;durN++;}});
+  return {n,W,L,B,net,gw,gl,avgW,avgL,mean,sd,best,worst,side,dd,mw,ml,z,conf,fees,avgDur:durN?durSum/durN:null,
+    pf:gl>0?gw/gl:(gw>0?null:0),pfInf:gl===0&&gw>0,sharpe:sd?mean/sd:null,
+    payoff:(avgW!==null&&avgL!==null&&avgL!==0)?avgW/Math.abs(avgL):null};
+}
+function psPeriods(all){
+  const now=new Date();
+  const ymd=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const today=ymd(now);
+  const ws=new Date(now.getFullYear(),now.getMonth(),now.getDate()-now.getDay());
+  const mk=(label,f)=>{const ts=all.filter(f);const s=psCompute(ts);const sc=s.W+s.L;return {label,n:s.n,net:s.net,wr:sc?Math.round(s.W/sc*100):null};};
+  return [
+    mk('Today',t=>t.date===today),
+    mk('This week',t=>t.date>=ymd(ws)&&t.date<=today),
+    mk('This month',t=>t.date.slice(0,7)===today.slice(0,7)),
+    mk('This year',t=>t.date.slice(0,4)===today.slice(0,4))
+  ];
+}
+function renderPerfStats(){
+  const el=document.getElementById('perf-stats');if(!el)return;
+  const all=psCollectTrades();
+  const yr=all.filter(t=>t.date.slice(0,4)===String(qYear));
+  if(!all.length){el.innerHTML='';return;}
+  const per=psPeriods(all);
+  const s=psCompute(yr);
+  const row=(l,v)=>`<div class="ps-row"><span>${l}</span><span>${v}</span></div>`;
+  const pct=(a,b)=>b?`<small>(${a}/${b})</small>${Math.round(a/b*100)}%`:'—';
+  const sc=s.W+s.L;
+  const bar=sc?`<span class="ps-bar"><i style="width:${s.W/sc*100}%;background:#34c38f"></i><i style="width:${s.L/sc*100}%;background:#f46a6a"></i></span>`:'—';
+  const bt=s.best?`<small>${s.best.d.slice(5)}</small><span class="${psCls(s.best.v)}">${psSigned(s.best.v)}</span>`:'—';
+  const wt=s.worst?`<small>${s.worst.d.slice(5)}</small><span class="${psCls(s.worst.v)}">${psSigned(s.worst.v)}</span>`:'—';
+  const left=
+    row('Trades',s.n)+
+    row('Profitability',bar)+
+    row('Wins / losses / breakeven',`${s.W} / ${s.L} / ${s.B}`)+
+    row('Net P&amp;L',`<span class="${psCls(s.net)}">${psSigned(s.net)}</span>`)+
+    row('Average win',s.avgW===null?'—':`<span class="green">${psMoney(s.avgW)}</span>`)+
+    row('Average loss',s.avgL===null?'—':`<span class="red">${psMoney(s.avgL)}</span>`)+
+    row('Payoff ratio (avg win / avg loss)',s.payoff===null?'—':s.payoff.toFixed(2))+
+    row('Longs won',pct(s.side.L.w,s.side.L.n))+
+    row('Shorts won',pct(s.side.S.w,s.side.S.n))+
+    (s.fees?row('Fees',psMoney(s.fees)):'');
+  const right=
+    row('Best trade',bt)+
+    row('Worst trade',wt)+
+    row('Profit factor',s.pfInf?'∞':(s.pf===null?'—':s.pf.toFixed(2)))+
+    row('Expectancy per trade',s.n?`<span class="${psCls(s.mean)}">${psSigned(s.mean)}</span>`:'—')+
+    row('Standard deviation',s.sd===null?'—':psMoney(s.sd))+
+    row('Sharpe ratio (per trade)',s.sharpe===null?'—':s.sharpe.toFixed(2))+
+    row('Z-score (probability)',s.z===null?'—':`${s.z.toFixed(2)} <small>(${s.conf.toFixed(2)}%)</small>`)+
+    row('Max drawdown',s.dd?`<span class="red">-${psMoney(s.dd).replace('-','')}</span>`:'—')+
+    row('Longest win / loss streak',`${s.mw} / ${s.ml}`)+
+    (s.avgDur!==null?row('Avg. trade length',psDur(s.avgDur)):'');
+  el.innerHTML=
+    `<div class="ps-sec"><div class="ps-h">Periods</div><table class="ps-per"><thead><tr><th></th><th>P&amp;L</th><th>Win rate</th><th>Trades</th></tr></thead><tbody>`+
+    per.map(p=>`<tr><td>${p.label}</td><td class="${psCls(p.net)}">${p.n?psSigned(p.net):'—'}</td><td>${p.wr===null?'—':p.wr+'%'}</td><td>${p.n}</td></tr>`).join('')+
+    `</tbody></table></div>`+
+    `<div class="ps-sec"><div class="ps-h">Advanced statistics — ${qYear}</div><div class="ps-grid"><div>${left}</div><div>${right}</div></div>`+
+    `<div class="ps-note">Trades within $10 of zero count as breakeven. Sharpe and standard deviation use per-trade P&amp;L. Z-score is a runs test on your win/loss order.</div></div>`;
+}
+
+
+function togglePnlChart(){
+  const sec=document.querySelector('#page-quarterly .chart-section');if(!sec)return;
+  const on=sec.classList.toggle('expanded');
+  const b=document.getElementById('chart-expand');if(b)b.textContent=on?'Collapse':'Expand';
+  try{localStorage.setItem('tj_chart_expanded',on?'1':'0');}catch(e){}
+  setTimeout(()=>{try{if(pnlChart)pnlChart.resize();}catch(e){}},30);
+}
+(function(){try{if(localStorage.getItem('tj_chart_expanded')==='1'){const sec=document.querySelector('#page-quarterly .chart-section');const b=document.getElementById('chart-expand');if(sec)sec.classList.add('expanded');if(b)b.textContent='Collapse';}}catch(e){}})();
 function renderPnlChart(){
   const canvas=document.getElementById('pnl-chart');if(!canvas)return;
   const all=[];
@@ -1839,6 +2001,7 @@ function renderPnlChart(){
 
 function renderQuarterlyOverview(){
   document.getElementById('q-year-label').textContent=qYear;
+  try{renderPerfStats();}catch(e){console.warn('perf stats',e);}
   const quarters=[{label:'Q1',months:[0,1,2]},{label:'Q2',months:[3,4,5]},{label:'Q3',months:[6,7,8]},{label:'Q4',months:[9,10,11]}];
   const grid=document.getElementById('q-overview-grid');grid.innerHTML='';
   quarters.forEach(q=>{
@@ -1867,18 +2030,15 @@ function renderQuarterlyOverview(){
   });
 }
 
-function openQuarterDetail(q,year,trades){
-  currentQTrades=trades;activeSetupFilter='All';
-  qdSelectMode=false;qdSelected.clear();
+function qdRenderSummary(){
+  const trades=activeSetupFilter==='All'?currentQTrades:currentQTrades.filter(t=>t.setup===activeSetupFilter);
   const pnl=trades.reduce((s,t)=>s+(parseFloat(t.pnl)||0),0);
   const wins=trades.filter(t=>(parseFloat(t.pnl)||0)>10).length;
   const losses=trades.filter(t=>(parseFloat(t.pnl)||0)<-10).length;
   const wr=winRateOf(trades);
   const avg=trades.length?pnl/trades.length:0;
-  document.getElementById('qd-title').textContent=`${q.label} ${year}`;
   document.getElementById('qd-pnl').textContent=pnlStr(pnl);
   document.getElementById('qd-pnl').className=`qd-pnl ${pnlClass(pnl)}`;
-  document.getElementById('topbar-title').textContent=`${q.label} ${year}`;
   document.getElementById('qd-stats-bar').innerHTML=`
     <div class="qd-stat"><div class="qd-stat-val purple">${trades.length}</div><div class="qd-stat-lbl">Trades</div></div>
     <div class="qd-stat"><div class="qd-stat-val neutral">${wr!==null?wr+'%':'—'}</div><div class="qd-stat-lbl">Win Rate</div></div>
@@ -1889,6 +2049,13 @@ function openQuarterDetail(q,year,trades){
   const qCanvas=document.getElementById('qd-chart');
   if(qdChart){qdChart.destroy();qdChart=null;}
   if(trades.length){const{labels,values}=buildChartData(trades);qdChart=makeChart(qCanvas,labels,values);}
+}
+function openQuarterDetail(q,year,trades){
+  currentQTrades=trades;activeSetupFilter='All';
+  qdSelectMode=false;qdSelected.clear();
+  document.getElementById('qd-title').textContent=`${q.label} ${year}`;
+  document.getElementById('topbar-title').textContent=`${q.label} ${year}`;
+  qdRenderSummary();
   renderFilterBar();renderQdTrades();
   document.getElementById('qd-trades').scrollTop=0;
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -1902,7 +2069,7 @@ function renderFilterBar(){
   document.getElementById('filter-bar').innerHTML=`<span class="filter-lbl">Setup:</span>
     ${usedSetups.map(s=>`<button class="filter-btn${activeSetupFilter===s?' active':''}" onclick="setSetupFilter('${s.replace(/'/g,"\\'")}')">${s}</button>`).join('')}`;
 }
-function setSetupFilter(s){activeSetupFilter=s;renderFilterBar();renderQdTrades();}
+function setSetupFilter(s){activeSetupFilter=s;qdRenderSummary();renderFilterBar();renderQdTrades();}
 function renderQdTrades(){
   const filtered=activeSetupFilter==='All'?currentQTrades:currentQTrades.filter(t=>t.setup===activeSetupFilter);
   const sorted=[...filtered].sort((a,b)=>b.date.localeCompare(a.date));
