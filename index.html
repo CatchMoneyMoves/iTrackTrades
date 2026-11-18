@@ -219,6 +219,34 @@ body.dark .ps-pairs th,body.dark .ps-pairs td{border-color:#1e2730 !important}
 body.dark .ps-pairs th,body.dark .ps-pairs .grp{color:#8a98a6}
 body.dark .ps-pairs td.pw{background:rgba(74,222,128,0.14)}
 body.dark .ps-pairs td.pl{background:rgba(248,113,113,0.14)}
+
+.ps-tabs{padding:0}
+.ps-tabbar{display:flex;align-items:flex-end;gap:4px;padding:10px 12px 0;border-bottom:1px solid #dde5ec;overflow-x:auto}
+.ps-tab{border:0;background:#e6edf3;color:#3a4756;border-radius:8px 8px 0 0;padding:9px 16px;font-size:0.8rem;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap}
+.ps-tab:hover{background:#d9e3ec}
+.ps-tab.on{background:#ffffff;color:#0077c0;box-shadow:inset 0 2px 0 #0077c0}
+.ps-year{margin-left:auto;font-size:0.72rem;color:#8493a1;padding:0 4px 10px;font-weight:600}
+.ps-pane{padding:14px 16px}
+.ps-empty{text-align:center;color:#8493a1;font-size:0.8rem;padding:20px}
+.ps-month{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:24px}
+.ps-mtitle{font-size:0.74rem;font-weight:600;color:#3a4756;text-align:center;margin-bottom:8px}
+.ps-mchart{display:flex;align-items:stretch;gap:6px;overflow-x:auto;padding-bottom:4px}
+.mb{flex:1;min-width:34px;display:flex;flex-direction:column;align-items:stretch;border:0;background:transparent;cursor:pointer;padding:0 2px;border-radius:6px;font-family:inherit}
+.mb:hover{background:rgba(0,119,192,0.07)}
+.mb.sel{background:rgba(0,119,192,0.13);box-shadow:inset 0 0 0 1.5px #0077c0}
+.mb-pos{display:flex;flex-direction:column;justify-content:flex-end;align-items:center;border-bottom:1px solid #aebbc7}
+.mb-neg{display:flex;flex-direction:column;justify-content:flex-start;align-items:center}
+.mb i{display:block;width:70%;max-width:46px;border-radius:3px}
+.mb i.up{background:#5bb5b0}.mb i.dn{background:#e08683}
+.mv{font-size:0.62rem;font-weight:700;line-height:18px;font-variant-numeric:tabular-nums}
+.mb-lbl{font-size:0.66rem;color:#5b6b7a;text-align:center;padding:4px 0}
+body.dark .ps-tabbar{border-color:#1e2730 !important}
+body.dark .ps-tab{background:#14181d !important;color:#a3a3a3 !important}
+body.dark .ps-tab.on{background:#0d1014 !important;color:#2b9be0 !important;box-shadow:inset 0 2px 0 #2b9be0 !important}
+body.dark .ps-mtitle,body.dark .mb-lbl{color:#8a98a6}
+body.dark .mb-pos{border-color:#2c3a47}
+body.dark .mb.sel{background:rgba(43,155,224,0.18)}
+@media(max-width:768px){.ps-month{grid-template-columns:1fr}.ps-pane{padding:12px}}
 .ps-sec{background:#ffffff;border:1px solid #dde5ec;border-radius:12px;padding:14px 16px;margin-top:12px}
 .ps-h{font-size:0.78rem;font-weight:600;color:#3a4756;margin-bottom:8px}
 .ps-per{width:100%;border-collapse:collapse;font-size:0.78rem}
@@ -1957,21 +1985,51 @@ function psPairsHtml(trades){
     if(d==='L'){o.ln++;o.lp+=p;}else if(d==='S'){o.sn++;o.sp+=p;}
   });
   const keys=Object.keys(g).sort((a,b)=>g[b].n-g[a].n||a.localeCompare(b));
-  if(!keys.length)return '';
+  if(!keys.length)return '<div class="ps-empty">No trades in '+qYear+'.</div>';
   const pc=(c,o)=>{const sc=o.W+o.L;return sc?`${c} (${Math.round(c/sc*100)}%)`:`${c} (—)`;};
   const m=v=>`<span class="${psCls(v)}">${(v<0?'-':'')+Math.abs(v).toFixed(2)}</span>`;
   const rows=keys.map(k=>{const o=g[k];return `<tr><td>${k}</td><td>${o.ln}</td><td>${m(o.lp)}</td><td>${o.sn}</td><td>${m(o.sp)}</td><td>${o.n}</td><td>${m(o.tp)}</td><td class="pw">${pc(o.W,o)}</td><td class="pl">${pc(o.L,o)}</td></tr>`;}).join('');
   const T=keys.reduce((a,k)=>{const o=g[k];['n','W','L','ln','lp','sn','sp','tp'].forEach(x=>a[x]+=o[x]);return a;},{n:0,W:0,L:0,ln:0,lp:0,sn:0,sp:0,tp:0});
   const tot=`<tr class="tot"><td>All</td><td>${T.ln}</td><td>${m(T.lp)}</td><td>${T.sn}</td><td>${m(T.sp)}</td><td>${T.n}</td><td>${m(T.tp)}</td><td class="pw">${pc(T.W,T)}</td><td class="pl">${pc(T.L,T)}</td></tr>`;
-  return `<div class="ps-sec"><div class="ps-h">Summary by pair — ${qYear}</div><div class="ps-scroll"><table class="ps-pairs"><thead><tr><th></th><th class="grp" colspan="2">Longs</th><th class="grp" colspan="2">Shorts</th><th class="grp" colspan="2">Total</th><th></th><th></th></tr><tr><th>Pair</th><th>Trades</th><th>Profit ($)</th><th>Trades</th><th>Profit ($)</th><th>Trades</th><th>Profit ($)</th><th>Won (%)</th><th>Lost (%)</th></tr></thead><tbody>${rows}${tot}</tbody></table></div></div>`;
+  return `<div class="ps-scroll"><table class="ps-pairs"><thead><tr><th></th><th class="grp" colspan="2">Longs</th><th class="grp" colspan="2">Shorts</th><th class="grp" colspan="2">Total</th><th></th><th></th></tr><tr><th>Pair</th><th>Trades</th><th>Profit ($)</th><th>Trades</th><th>Profit ($)</th><th>Trades</th><th>Profit ($)</th><th>Won (%)</th><th>Lost (%)</th></tr></thead><tbody>${rows}${tot}</tbody></table></div>`;
 }
-function renderPerfStats(){
-  const el=document.getElementById('perf-stats');if(!el)return;
-  const all=psCollectTrades();
-  const yr=all.filter(t=>t.date.slice(0,4)===String(qYear));
-  if(!all.length){el.innerHTML='';return;}
-  const per=psPeriods(all);
-  const s=psCompute(yr);
+const PS_MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+let psTab='pair',psMonth=null;
+function psSetTab(t){psTab=t;renderPerfStats();}
+function psPickMonth(i){psMonth=(psMonth===i?null:i);renderPerfStats();}
+function psMonthlyHtml(yr){
+  const by=Array.from({length:12},()=>[]);
+  yr.forEach(t=>{const i=parseInt(t.date.slice(5,7),10)-1;if(i>=0&&i<12)by[i].push(t);});
+  const mons=[];
+  by.forEach((ts,i)=>{if(ts.length){mons.push({i,s:psCompute(ts)});}});
+  if(!mons.length)return '<div class="ps-empty">No trades in '+qYear+'.</div>';
+  const P=Math.max(0,...mons.map(m=>m.s.net)),N=Math.max(0,...mons.map(m=>-m.s.net));
+  const range=(P+N)||1,H=150,k=H/range;
+  const cols=mons.map(m=>{
+    const v=m.s.net,h=Math.max(2,Math.abs(v)*k),sel=psMonth===m.i?' sel':'';
+    const lab=`<span class="mv ${psCls(v)}">${v<0?'-':''}$${Math.abs(v).toFixed(0)}</span>`;
+    const pos=`<div class="mb-pos" style="height:${P*k+18}px">${v>0?lab+`<i class="up" style="height:${h}px"></i>`:''}</div>`;
+    const neg=N>0?`<div class="mb-neg" style="height:${N*k+18}px">${v<0?`<i class="dn" style="height:${h}px"></i>`+lab:''}</div>`:'';
+    return `<button type="button" class="mb${sel}" onclick="psPickMonth(${m.i})" aria-label="${PS_MON[m.i]} ${qYear}">${pos}${neg}<div class="mb-lbl">${PS_MON[m.i]}</div></button>`;
+  }).join('');
+  let det='<div class="ps-empty" style="padding:30px 10px">Select a month.</div>';
+  const sel=mons.find(m=>m.i===psMonth);
+  if(sel){
+    const x=sel.s,row=(l,v)=>`<div class="ps-row"><span>${l}</span><span>${v}</span></div>`,sc=x.W+x.L;
+    det=`<div class="ps-h" style="margin-bottom:4px">${PS_MON[sel.i]} ${qYear}</div>`+
+      row('Net P&amp;L',`<span class="${psCls(x.net)}">${psSigned(x.net)}</span>`)+
+      row('Trades',x.n)+
+      row('Win rate',sc?Math.round(x.W/sc*100)+'%':'—')+
+      row('Wins / losses / breakeven',`${x.W} / ${x.L} / ${x.B}`)+
+      row('Average win',x.avgW===null?'—':`<span class="green">${psMoney(x.avgW)}</span>`)+
+      row('Average loss',x.avgL===null?'—':`<span class="red">${psMoney(x.avgL)}</span>`)+
+      row('Best trade',x.best?`<span class="${psCls(x.best.v)}">${psSigned(x.best.v)}</span>`:'—')+
+      row('Worst trade',x.worst?`<span class="${psCls(x.worst.v)}">${psSigned(x.worst.v)}</span>`:'—')+
+      row('Profit factor',x.pfInf?'∞':(x.pf===null?'—':x.pf.toFixed(2)));
+  }
+  return `<div class="ps-month"><div><div class="ps-mtitle">Monthly P&amp;L ($)</div><div class="ps-mchart">${cols}</div></div><div class="ps-mdet">${det}</div></div>`;
+}
+function psAdvancedHtml(s){
   const row=(l,v)=>`<div class="ps-row"><span>${l}</span><span>${v}</span></div>`;
   const pct=(a,b)=>b?`<small>(${a}/${b})</small>${Math.round(a/b*100)}%`:'—';
   const sc=s.W+s.L;
@@ -1979,19 +2037,16 @@ function renderPerfStats(){
   const bt=s.best?`<small>${s.best.d.slice(5)}</small><span class="${psCls(s.best.v)}">${psSigned(s.best.v)}</span>`:'—';
   const wt=s.worst?`<small>${s.worst.d.slice(5)}</small><span class="${psCls(s.worst.v)}">${psSigned(s.worst.v)}</span>`:'—';
   const left=
-    row('Trades',s.n)+
-    row('Profitability',bar)+
+    row('Trades',s.n)+row('Profitability',bar)+
     row('Wins / losses / breakeven',`${s.W} / ${s.L} / ${s.B}`)+
     row('Net P&amp;L',`<span class="${psCls(s.net)}">${psSigned(s.net)}</span>`)+
     row('Average win',s.avgW===null?'—':`<span class="green">${psMoney(s.avgW)}</span>`)+
     row('Average loss',s.avgL===null?'—':`<span class="red">${psMoney(s.avgL)}</span>`)+
     row('Payoff ratio (avg win / avg loss)',s.payoff===null?'—':s.payoff.toFixed(2))+
-    row('Longs won',pct(s.side.L.w,s.side.L.n))+
-    row('Shorts won',pct(s.side.S.w,s.side.S.n))+
+    row('Longs won',pct(s.side.L.w,s.side.L.n))+row('Shorts won',pct(s.side.S.w,s.side.S.n))+
     (s.fees?row('Fees',psMoney(s.fees)):'');
   const right=
-    row('Best trade',bt)+
-    row('Worst trade',wt)+
+    row('Best trade',bt)+row('Worst trade',wt)+
     row('Profit factor',s.pfInf?'∞':(s.pf===null?'—':s.pf.toFixed(2)))+
     row('Expectancy per trade',s.n?`<span class="${psCls(s.mean)}">${psSigned(s.mean)}</span>`:'—')+
     row('Standard deviation',s.sd===null?'—':psMoney(s.sd))+
@@ -1999,14 +2054,28 @@ function renderPerfStats(){
     row('Max drawdown',s.dd?`<span class="red">-${psMoney(s.dd).replace('-','')}</span>`:'—')+
     row('Longest win / loss streak',`${s.mw} / ${s.ml}`)+
     (s.avgDur!==null?row('Avg. trade length',psDur(s.avgDur)):'');
-  el.innerHTML=
-    `<div class="ps-sec"><div class="ps-h">Periods</div><table class="ps-per"><thead><tr><th></th><th>P&amp;L</th><th>Win rate</th><th>Trades</th></tr></thead><tbody>`+
-    per.map(p=>`<tr><td>${p.label}</td><td class="${psCls(p.net)}">${p.n?psSigned(p.net):'—'}</td><td>${p.wr===null?'—':p.wr+'%'}</td><td>${p.n}</td></tr>`).join('')+
-    `</tbody></table></div>`+
-    `<div class="ps-sec"><div class="ps-h">Advanced statistics — ${qYear}</div><div class="ps-grid"><div>${left}</div><div>${right}</div></div>`+
-    `<div class="ps-note">Trades within $10 of zero count as breakeven. Sharpe and standard deviation use per-trade P&amp;L.</div></div>`+psPairsHtml(yr);
+  return `<div class="ps-grid"><div>${left}</div><div>${right}</div></div><div class="ps-note">Trades within $10 of zero count as breakeven. Sharpe and standard deviation use per-trade P&amp;L.</div>`;
 }
-
+function psPeriodsHtml(all){
+  const per=psPeriods(all);
+  return `<table class="ps-per"><thead><tr><th></th><th>P&amp;L</th><th>Win rate</th><th>Trades</th></tr></thead><tbody>`+
+    per.map(p=>`<tr><td>${p.label}</td><td class="${psCls(p.net)}">${p.n?psSigned(p.net):'—'}</td><td>${p.wr===null?'—':p.wr+'%'}</td><td>${p.n}</td></tr>`).join('')+`</tbody></table>`;
+}
+function renderPerfStats(){
+  const el=document.getElementById('perf-stats');if(!el)return;
+  const all=psCollectTrades();
+  const yr=all.filter(t=>t.date.slice(0,4)===String(qYear));
+  if(!all.length){el.innerHTML='';return;}
+  const tabs=[['pair','Summary'],['adv','Advanced'],['per','Recent']];
+  let body='';
+  if(psTab==='adv')body=yr.length?psAdvancedHtml(psCompute(yr)):'<div class="ps-empty">No trades in '+qYear+'.</div>';
+  else if(psTab==='per')body=psPeriodsHtml(all);
+  else body=psPairsHtml(yr);
+  el.innerHTML=`<div class="ps-sec ps-tabs"><div class="ps-tabbar" role="tablist">`+
+    tabs.map(t=>`<button type="button" role="tab" class="ps-tab${psTab===t[0]?' on':''}" aria-selected="${psTab===t[0]}" onclick="psSetTab('${t[0]}')">${t[1]}</button>`).join('')+
+    `<span class="ps-year">${qYear}</span></div><div class="ps-pane">${body}</div></div>`+
+    `<div class="ps-sec"><div class="ps-h">Monthly — ${qYear}</div>${psMonthlyHtml(yr)}</div>`;
+}
 
 function togglePnlChart(){
   const sec=document.querySelector('#page-quarterly .chart-section');if(!sec)return;
