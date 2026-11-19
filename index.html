@@ -211,12 +211,25 @@ body.dark .chart-expand{background:#0a0c0f !important;border-color:#2c3a47 !impo
 .ps-pairs th{color:#5b6b7a;font-weight:500;text-align:right;padding:6px 8px;border-bottom:1px solid #dde5ec;white-space:nowrap}
 .ps-pairs td{text-align:right;padding:9px 8px;border-bottom:1px solid #eef2f6;font-variant-numeric:tabular-nums;white-space:nowrap}
 .ps-pairs th:first-child,.ps-pairs td:first-child{text-align:left;font-weight:700}
-.ps-pairs .grp{text-align:center;border-bottom:0;color:#3a4756;font-weight:600}
+.ps-pairs .grp{text-align:center;color:#3a4756;font-weight:600;border-bottom:2px solid #9fb0c0}
+.ps-pairs th.srt{cursor:pointer;user-select:none;-webkit-user-select:none}
+.ps-pairs th.srt:hover,.ps-pairs th.srt.on{color:#0a7bd1}
+.ps-pairs th .ar{display:inline-block;width:12px;font-size:0.6rem;text-align:left;padding-left:2px}
+.ps-pairs th:first-child .ar{width:auto}
+.ps-pairs thead tr:first-child th:nth-child(n+2),
+.ps-pairs thead tr:nth-child(2) th:nth-child(2),.ps-pairs thead tr:nth-child(2) th:nth-child(4),.ps-pairs thead tr:nth-child(2) th:nth-child(6),.ps-pairs thead tr:nth-child(2) th:nth-child(8),
+.ps-pairs tbody td:nth-child(2),.ps-pairs tbody td:nth-child(4),.ps-pairs tbody td:nth-child(6),.ps-pairs tbody td:nth-child(8){border-left:1px solid #c9d5e0}
+.ps-pairs thead tr:first-child th:last-child{border-left:0}
+.ps-pairs thead tr:first-child th:first-child{border-left:0;border-bottom:0}
+.ps-pairs thead tr:first-child th:nth-child(5){border-bottom:0}
 .ps-pairs td.pw{background:rgba(52,195,143,0.16)}
 .ps-pairs td.pl{background:rgba(244,106,106,0.16)}
 .ps-pairs tr.tot td{font-weight:700;border-top:2px solid #dde5ec}
 body.dark .ps-pairs th,body.dark .ps-pairs td{border-color:#1e2730 !important}
 body.dark .ps-pairs th,body.dark .ps-pairs .grp{color:#8a98a6}
+body.dark .ps-pairs th.srt:hover,body.dark .ps-pairs th.srt.on{color:#4aa8f0}
+body.dark .ps-pairs .grp{border-bottom-color:#3a4a59 !important}
+body.dark .ps-pairs thead th:nth-child(n+2):not(.srt),body.dark .ps-pairs tbody td:nth-child(2),body.dark .ps-pairs tbody td:nth-child(4),body.dark .ps-pairs tbody td:nth-child(6),body.dark .ps-pairs tbody td:nth-child(8),body.dark .ps-pairs thead tr:nth-child(2) th:nth-child(2),body.dark .ps-pairs thead tr:nth-child(2) th:nth-child(4),body.dark .ps-pairs thead tr:nth-child(2) th:nth-child(6),body.dark .ps-pairs thead tr:nth-child(2) th:nth-child(8){border-left-color:#2c3a47 !important}
 body.dark .ps-pairs td.pw{background:rgba(74,222,128,0.14)}
 body.dark .ps-pairs td.pl{background:rgba(248,113,113,0.14)}
 
@@ -2002,19 +2015,30 @@ function psPairsHtml(trades){
     o.n++;o.tp+=p;if(p>BE)o.W++;else if(p<-BE)o.L++;
     if(d==='L'){o.ln++;o.lp+=p;}else if(d==='S'){o.sn++;o.sp+=p;}
   });
-  const keys=Object.keys(g).sort((a,b)=>g[b].n-g[a].n||a.localeCompare(b));
+  const sv=(k,key)=>{const o=g[k];const sc=o.W+o.L;
+    return key==='pair'?k.toLowerCase():key==='W'?(sc?o.W/sc:-1):key==='L'?(sc?o.L/sc:-1):o[key];};
+  const keys=Object.keys(g).sort((a,b)=>{
+    if(psSort.k){const x=sv(a,psSort.k),y=sv(b,psSort.k);if(x!==y)return (x<y?-1:1)*psSort.d;}
+    return g[b].n-g[a].n||a.localeCompare(b);
+  });
   if(!keys.length)return '<div class="ps-empty">No trades in '+qYear+'.</div>';
+  const H=(k,l)=>`<th class="srt${psSort.k===k?' on':''}" onclick="psSortBy('${k}')" aria-sort="${psSort.k===k?(psSort.d>0?'ascending':'descending'):'none'}">${l}<span class="ar">${psSort.k===k?(psSort.d>0?'▲':'▼'):''}</span></th>`;
   const pc=(c,o)=>{const sc=o.W+o.L;return sc?`${c} (${Math.round(c/sc*100)}%)`:`${c} (—)`;};
   const m=v=>`<span class="${psCls(v)}">${(v<0?'-':'')+Math.abs(v).toFixed(2)}</span>`;
   const rows=keys.map(k=>{const o=g[k];return `<tr><td>${k}</td><td>${o.ln}</td><td>${m(o.lp)}</td><td>${o.sn}</td><td>${m(o.sp)}</td><td>${o.n}</td><td>${m(o.tp)}</td><td class="pw">${pc(o.W,o)}</td><td class="pl">${pc(o.L,o)}</td></tr>`;}).join('');
   const T=keys.reduce((a,k)=>{const o=g[k];['n','W','L','ln','lp','sn','sp','tp'].forEach(x=>a[x]+=o[x]);return a;},{n:0,W:0,L:0,ln:0,lp:0,sn:0,sp:0,tp:0});
   const tot=`<tr class="tot"><td>All</td><td>${T.ln}</td><td>${m(T.lp)}</td><td>${T.sn}</td><td>${m(T.sp)}</td><td>${T.n}</td><td>${m(T.tp)}</td><td class="pw">${pc(T.W,T)}</td><td class="pl">${pc(T.L,T)}</td></tr>`;
-  return `<div class="ps-scroll"><table class="ps-pairs"><thead><tr><th></th><th class="grp" colspan="2">Longs</th><th class="grp" colspan="2">Shorts</th><th class="grp" colspan="2">Total</th><th></th><th></th></tr><tr><th>Pair</th><th>Trades</th><th>Profit ($)</th><th>Trades</th><th>Profit ($)</th><th>Trades</th><th>Profit ($)</th><th>Won (%)</th><th>Lost (%)</th></tr></thead><tbody>${rows}${tot}</tbody></table></div>`;
+  return `<div class="ps-scroll"><table class="ps-pairs"><thead><tr><th></th><th class="grp" colspan="2">Longs</th><th class="grp" colspan="2">Shorts</th><th class="grp" colspan="2">Total</th><th></th><th></th></tr><tr>${H('pair','Pair')}${H('ln','Trades')}${H('lp','Profit ($)')}${H('sn','Trades')}${H('sp','Profit ($)')}${H('n','Trades')}${H('tp','Profit ($)')}${H('W','Won (%)')}${H('L','Lost (%)')}</tr></thead><tbody>${rows}${tot}</tbody></table></div>`;
 }
 const PS_MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const XI_EXP='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>';
 const XI_COL='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>';
 let psTab='pair',psMonth=null,psFull=null;
+let psSort={k:null,d:-1};
+function psSortBy(k){
+  if(psSort.k===k)psSort.d=-psSort.d;else psSort={k:k,d:k==='pair'?1:-1};
+  renderPerfStats();
+}
 function psXbtn(w){const on=psFull===w;return `<button type="button" class="ps-xbtn" onclick="psToggleFull('${w}')" title="${on?'Collapse':'Expand'}" aria-label="${on?'Collapse':'Expand'}">${on?XI_COL:XI_EXP}</button>`;}
 function psToggleFull(w){psFull=(psFull===w?null:w);renderPerfStats();const f=document.querySelector('#perf-stats .ps-full');if(f)f.scrollTop=0;}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&psFull){psFull=null;renderPerfStats();}});
